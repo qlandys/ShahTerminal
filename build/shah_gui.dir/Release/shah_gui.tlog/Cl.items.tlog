@@ -1,0 +1,11 @@
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\main.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\main.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\MainWindow.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\MainWindow.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\LadderClient.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\LadderClient.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\ConnectionStore.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\ConnectionStore.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\TradeManager.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\TradeManager.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\ConnectionsWindow.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\ConnectionsWindow.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\PluginsWindow.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\PluginsWindow.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\SettingsWindow.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\SettingsWindow.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\PrintsWidget.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\PrintsWidget.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\DomWidget.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\DomWidget.obj
+C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui_autogen\mocs_compilation_Release.cpp;C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui.dir\Release\mocs_compilation_Release.obj

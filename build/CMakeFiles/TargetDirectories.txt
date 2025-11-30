@@ -1,0 +1,4 @@
+C:/Users/Babos/ShahProjects/ShahTerminal/build/CMakeFiles/orderbook_backend.dir
+C:/Users/Babos/ShahProjects/ShahTerminal/build/CMakeFiles/shah_gui.dir
+C:/Users/Babos/ShahProjects/ShahTerminal/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Babos/ShahProjects/ShahTerminal/build/CMakeFiles/ZERO_CHECK.dir

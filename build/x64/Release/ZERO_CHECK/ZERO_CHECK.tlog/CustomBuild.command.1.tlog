@@ -1,0 +1,10 @@
+^C:\USERS\BABOS\SHAHPROJECTS\SHAHTERMINAL\BUILD\CMAKEFILES\FD6354FDAF662CE5578508BCBEA80D71\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Babos/ShahProjects/ShahTerminal -BC:/Users/Babos/ShahProjects/ShahTerminal/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/Babos/ShahProjects/ShahTerminal/build/ShahTerminal.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

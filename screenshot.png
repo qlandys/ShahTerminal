@@ -1,0 +1,2 @@
+<!DOCTYPE html> <html> <head> <link rel='stylesheet' href='https://fonts.googleapis.com/css?family=Arimo'> <style> body { font-family: 'Arimo', sans-serif; text-align: center; font-size: .9em; background-color: white; color: gray } .container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; } img { max-width: 100%; height: auto; } </style> 
+</head> <body> <div class='container'> <img src='https://i.sstatic.net/6kO9aIBM.png'> <p>yikes, we didn't find that image<br>RayID: 9a3fe9e4784c8d82</br></p> </div> </body> </html>

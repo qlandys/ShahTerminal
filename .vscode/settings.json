@@ -1,0 +1,6 @@
+{
+    "cmake.configureSettings": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.10.0/msvc2022_64"
+    },
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+}

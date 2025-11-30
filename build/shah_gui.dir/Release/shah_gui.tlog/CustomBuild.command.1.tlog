@@ -1,0 +1,10 @@
+^C:\USERS\BABOS\SHAHPROJECTS\SHAHTERMINAL\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Babos/ShahProjects/ShahTerminal -BC:/Users/Babos/ShahProjects/ShahTerminal/build --check-stamp-file C:/Users/Babos/ShahProjects/ShahTerminal/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

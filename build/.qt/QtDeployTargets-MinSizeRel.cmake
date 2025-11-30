@@ -1,0 +1,6 @@
+set(__QT_DEPLOY_TARGET_orderbook_backend_FILE C:/Users/Babos/ShahProjects/ShahTerminal/build/MinSizeRel/orderbook_backend.exe)
+set(__QT_DEPLOY_TARGET_orderbook_backend_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_orderbook_backend_RUNTIME_DLLS )
+set(__QT_DEPLOY_TARGET_shah_gui_FILE C:/Users/Babos/ShahProjects/ShahTerminal/build/MinSizeRel/shah_gui.exe)
+set(__QT_DEPLOY_TARGET_shah_gui_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_shah_gui_RUNTIME_DLLS C:/Qt/6.10.1/msvc2022_64/bin/Qt6Widgets.dll;C:/Qt/6.10.1/msvc2022_64/bin/Qt6Gui.dll;C:/Qt/6.10.1/msvc2022_64/bin/Qt6WebSockets.dll;C:/Qt/6.10.1/msvc2022_64/bin/Qt6Network.dll;C:/Qt/6.10.1/msvc2022_64/bin/Qt6Core.dll)
