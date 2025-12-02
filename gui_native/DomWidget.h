@@ -33,6 +33,14 @@ class DomWidget : public QWidget {
     Q_OBJECT
 
 public:
+    struct LocalOrderMarker
+    {
+        double price = 0.0;
+        double quantity = 0.0;
+        OrderSide side = OrderSide::Buy;
+        qint64 createdMs = 0;
+    };
+
     explicit DomWidget(QWidget *parent = nullptr);
 
     void updateSnapshot(const DomSnapshot &snapshot);
@@ -43,6 +51,7 @@ public:
     void setRowHeight(int h);
     void setVolumeHighlightRules(const QVector<VolumeHighlightRule> &rules);
     void setTradePosition(const TradePosition &position);
+    void setLocalOrders(const QVector<LocalOrderMarker> &orders);
 
 signals:
     void rowClicked(Qt::MouseButton button, int row, double price, double bidQty, double askQty);
@@ -68,6 +77,7 @@ private:
     int m_rowHeight = 12;
     TradePosition m_position;
     int m_infoAreaHeight = 26;
+    QVector<LocalOrderMarker> m_localOrders;
 
     void updateHoverInfo(int row);
     double cumulativeNotionalForRow(int row) const;

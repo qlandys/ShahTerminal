@@ -1,6 +1,7 @@
 #include "DomWidget.h"
 
 #include <QAbstractScrollArea>
+#include <QDateTime>
 #include <QFont>
 #include <QFontMetrics>
 #include <QMouseEvent>
@@ -465,6 +466,50 @@ void DomWidget::paintEvent(QPaintEvent *event)
         }
     }
 
+    if (!m_localOrders.isEmpty()) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        const int rowIntHeight = std::max(1, static_cast<int>(rowHeight));
+        for (const auto &order : m_localOrders) {
+            const int rowIdx = rowForPrice(order.price);
+            if (rowIdx < 0 || rowIdx >= rows) {
+                continue;
+            }
+            const int y = static_cast<int>(rowIdx * rowHeight);
+            QRect orderRect(0, y, w, rowIntHeight);
+            if (!clipRect.intersects(orderRect)) {
+                continue;
+            }
+
+            QColor color = order.side == OrderSide::Buy ? QColor("#1e88e5") : QColor("#ef5350");
+            qint64 age = nowMs - order.createdMs;
+            const qint64 fadeWindow = 20000;
+            double fade = 1.0;
+            if (age > fadeWindow) {
+                fade = 0.35;
+            } else if (age > 0) {
+                fade = 1.0 - (static_cast<double>(age) / fadeWindow) * 0.65;
+            }
+            int alpha = std::clamp(static_cast<int>(200 * fade), 40, 220);
+            color.setAlpha(alpha);
+            QColor border = color.darker(180);
+            border.setAlpha(std::clamp(alpha + 30, 60, 240));
+
+            p.fillRect(orderRect, color);
+            p.setPen(border);
+            p.drawRect(orderRect.adjusted(0, 0, -1, -1));
+
+            QString text = QStringLiteral("%1 %2")
+                               .arg(order.side == OrderSide::Buy ? tr("BUY") : tr("SELL"))
+                               .arg(order.quantity, 0, 'g', 6);
+            QFont orderFont = p.font();
+            orderFont.setBold(true);
+            p.setFont(orderFont);
+            p.setPen(Qt::white);
+            p.drawText(orderRect.adjusted(6, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, text);
+            p.setFont(font());
+        }
+    }
+
     const QRect infoRect(0, height() - m_infoAreaHeight, w, m_infoAreaHeight);
     QColor infoBg(0, 0, 0, 180);
     p.fillRect(infoRect, infoBg);
@@ -649,6 +694,12 @@ void DomWidget::setVolumeHighlightRules(const QVector<VolumeHighlightRule> &rule
 void DomWidget::setTradePosition(const TradePosition &position)
 {
     m_position = position;
+    update();
+}
+
+void DomWidget::setLocalOrders(const QVector<LocalOrderMarker> &orders)
+{
+    m_localOrders = orders;
     update();
 }
 

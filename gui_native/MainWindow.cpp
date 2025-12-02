@@ -1679,6 +1679,7 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     {
         result.notionalValues[i] = m_defaultNotionalPresets[i];
     }
+    result.orderNotional = result.notionalValues.at(std::min<std::size_t>(3, result.notionalValues.size() - 1));
     const int presetCount = static_cast<int>(result.notionalValues.size());
     auto *notionalOverlay = new QWidget(scroll->viewport());
     notionalOverlay->setAttribute(Qt::WA_TranslucentBackground, true);
@@ -1827,6 +1828,8 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     result.levelsSpin = levelsSpin;
     result.notionalOverlay = notionalOverlay;
     result.notionalGroup = notionalGroup;
+    result.localOrders.clear();
+    result.dom->setLocalOrders(result.localOrders);
     return result;
 }
 
@@ -2007,6 +2010,19 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
     }
     const OrderSide side = (button == Qt::LeftButton) ? OrderSide::Buy : OrderSide::Sell;
     m_tradeManager->placeLimitOrder(column->symbol, price, quantity, side);
+    if (column->dom) {
+        DomWidget::LocalOrderMarker marker;
+        marker.price = price;
+        marker.quantity = notional;
+        marker.side = side;
+        marker.createdMs = QDateTime::currentMSecsSinceEpoch();
+        column->localOrders.append(marker);
+        const int maxMarkers = 20;
+        if (column->localOrders.size() > maxMarkers) {
+            column->localOrders.remove(0, column->localOrders.size() - maxMarkers);
+        }
+        column->dom->setLocalOrders(column->localOrders);
+    }
     statusBar()->showMessage(
         tr("Submitting %1 %2 @ %3")
             .arg(side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL"))

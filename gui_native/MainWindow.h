@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include "DomTypes.h"
+#include "DomWidget.h"
 #include "SettingsWindow.h"
 #include "TradeManager.h"
 
@@ -102,6 +103,7 @@ private:
         class QLineEdit *notionalEditField = nullptr;
         int editingNotionalIndex = -1;
         std::array<double, 5> notionalValues{};
+        QVector<DomWidget::LocalOrderMarker> localOrders;
     };
 
     struct WorkspaceTab {
