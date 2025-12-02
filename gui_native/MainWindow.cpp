@@ -13,7 +13,6 @@
 #include <QDateTime>
 #include <QDir>
 #include <QEvent>
-#include <QDoubleSpinBox>
 #include <QFile>
 #include <QScreen>
 #include <QColor>
@@ -24,6 +23,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QButtonGroup>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QPixmap>
@@ -304,7 +304,7 @@ MainWindow::MainWindow(const QString &backendPath,
         m_volumeRules = defaultVolumeHighlightRules();
     }
 
-    // Глобальный перехват клавиш (Shift и т.п.).
+    // ?????????? ???????? ?????? (Shift ? ?.?.).
     qApp->installEventFilter(this);
 
     buildUi();
@@ -371,12 +371,12 @@ void MainWindow::buildUi()
     m_timeTimer->start();
     updateTimeLabel();
 
-    // Window buttons style + TitleBar bottom border, близко к VSCode.
-    // Делам бортик чуть светлее и добавляем такой же бортик у боковой панели.
+    // Window buttons style + TitleBar bottom border, ?????? ? VSCode.
+    // ????? ?????? ???? ??????? ? ????????? ????? ?? ?????? ? ??????? ??????.
     setStyleSheet(
         "QFrame#TitleBar {"
         "  background-color: #252526;"
-        "  border-bottom: none;" /* Удаляем нижнюю границу у TitleBar */
+        "  border-bottom: none;" /* ??????? ?????? ??????? ? TitleBar */
         "}"
         "QFrame#SideToolbar {"
         "  background-color: transparent;"
@@ -408,29 +408,29 @@ void MainWindow::buildUi()
         "  background-color: #c50f1f;"
         "  color: #ffffff;"
         "}"
-        // Убираем hover-бэкграунд у боковой панели — иконка сама станет белой при наведении.
+        // ??????? hover-????????? ? ??????? ?????? ? ?????? ???? ?????? ????? ??? ?????????.
                 "QToolButton#SideNavButton {"
         "  background: transparent;"
         "  border: none;"
         "  padding: 0px;"
         "  margin: 0px;"
         "}"
-        // Стили для вкладок в стиле VSCode
+        // ????? ??? ??????? ? ????? VSCode
         "QFrame#TabsContainer {"
-        "  background-color: #252526;"          /* тот же фон, что и у TitleBar */
-        "  border-bottom: none;"   /* Удаляем нижнюю границу у TabsContainer */
+        "  background-color: #252526;"          /* ??? ?? ???, ??? ? ? TitleBar */
+        "  border-bottom: none;"   /* ??????? ?????? ??????? ? TabsContainer */
         "}"
         "QTabBar {"
-        "  border: none;" /* Убираем все границы у самого QTabBar */
-        "  background-color: #252526;" /* Устанавливаем фон QTabBar таким же, как у TitleBar */
+        "  border: none;" /* ??????? ??? ??????? ? ?????? QTabBar */
+        "  background-color: #252526;" /* ????????????? ??? QTabBar ????? ??, ??? ? TitleBar */
         "}"
         "QTabBar::tab {"
-        "  background-color: #252526;" /* Фон неактивной вкладки, как у тайтл-бара */
-        "  color: #cccccc;" /* Цвет текста неактивной вкладки */
-        "  padding: 0px 12px;" /* Отступы, чтобы вкладки занимали всю высоту */
-        "  border: none;" /* Убираем все бортики у вкладок */
-        "  margin-left: 0px;" /* Убираем отступ между вкладками */
-        "  height: 100%;" /* Вкладка во всю высоту тайтл-бара */
+        "  background-color: #252526;" /* ??? ?????????? ???????, ??? ? ?????-???? */
+        "  color: #cccccc;" /* ???? ?????? ?????????? ??????? */
+        "  padding: 0px 12px;" /* ???????, ????? ??????? ???????? ??? ?????? */
+        "  border: none;" /* ??????? ??? ??????? ? ??????? */
+        "  margin-left: 0px;" /* ??????? ?????? ????? ????????? */
+        "  height: 100%;" /* ??????? ?? ??? ?????? ?????-???? */
         "}"
                 "QTabBar::tab:selected {"
         "  background-color: #1e1e1e;"
@@ -444,7 +444,7 @@ void MainWindow::buildUi()
         "  border-left: none;"
         "}"
         "QTabBar::tab:!selected:hover {"
-        "  background-color: #2d2d2d;" /* Фон при наведении на неактивную вкладку */
+        "  background-color: #2d2d2d;" /* ??? ??? ????????? ?? ?????????? ??????? */
         "}"
         "QTabBar::close-button {"
         "  border: none;"
@@ -499,8 +499,8 @@ void MainWindow::buildUi()
         "}"
         );
 
-    // Дополнительный стиль: убираем стандартную линию QTabBar::pane,
-    // чтобы не было второй светлой полосы под вкладками.
+    // ?????????????? ?????: ??????? ??????????? ????? QTabBar::pane,
+    // ????? ?? ???? ?????? ??????? ?????? ??? ?????????.
     const QString extraTabPaneStyle = QStringLiteral(
         "QFrame#TabsContainer {"
         "  background-color: #252526;"
@@ -547,7 +547,7 @@ void MainWindow::buildUi()
 
     setStyleSheet(styleSheet() + extraTabPaneStyle);
 
-    // ������� ����������� ���������� ���������.
+    // ??????? ??????????? ?????????? ?????????.
     const QString vscodeTabsStyle = QStringLiteral(
         "QTabBar {"
         "  border: none;"
@@ -599,20 +599,20 @@ void MainWindow::buildUi()
     auto *mainTopLayout = new QHBoxLayout(top);
     mainTopLayout->setContentsMargins(0, 0, 0, 0);
     mainTopLayout->setSpacing(0);
-    // ������������� ��������� ������ ���������,
-    // ����� �� ���� ������ �������� ������ ������.
+    // ????????????? ????????? ?????? ?????????,
+    // ????? ?? ???? ?????? ???????? ?????? ??????.
     top->setFixedHeight(32);
 
-    // top->setStyleSheet("border-bottom: 1px solid #444444;"); /* Добавляем единую полоску под всем тайтлбаром */
+    // top->setStyleSheet("border-bottom: 1px solid #444444;"); /* ????????? ?????? ??????? ??? ???? ?????????? */
 
-    // Левая секция для логотипа (выровнена с навбаром ниже)
+    // ????? ?????? ??? ???????? (????????? ? ???????? ????)
     auto *logoContainer = new QFrame(top);
     logoContainer->setObjectName(QStringLiteral("SideToolbar"));
-    logoContainer->setFixedWidth(42); // Та же ширина, что и у SideToolbar
+    logoContainer->setFixedWidth(42); // ?? ?? ??????, ??? ? ? SideToolbar
     auto *logoLayout = new QHBoxLayout(logoContainer);
     logoLayout->setContentsMargins(0, 0, 0, 0);
     logoLayout->setSpacing(0);
-    logoLayout->setAlignment(Qt::AlignCenter); // Центрируем логотип вертикально и горизонтально
+    logoLayout->setAlignment(Qt::AlignCenter); // ?????????? ??????? ??????????? ? ?????????????
 
     auto *logoLabel = new QLabel(logoContainer);
     logoLabel->setFixedSize(28, 28);
@@ -626,10 +626,10 @@ void MainWindow::buildUi()
     logoLayout->addWidget(logoLabel);
     mainTopLayout->addWidget(logoContainer);
 
-    // Средняя секция для вкладок
-    // Средняя секция для вкладок
+    // ??????? ?????? ??? ???????
+    // ??????? ?????? ??? ???????
     auto *tabsContainer = new QFrame(top);
-    tabsContainer->setObjectName(QStringLiteral("TabsContainer")); // << добавили имя
+    tabsContainer->setObjectName(QStringLiteral("TabsContainer")); // << ???????? ???
     auto *tabsLayout = new QHBoxLayout(tabsContainer);
     tabsLayout->setContentsMargins(0, 0, 0, 0);
     tabsLayout->setSpacing(0);
@@ -750,15 +750,15 @@ void MainWindow::buildUi()
     right->addWidget(m_settingsSearchEdit);
     right->addWidget(m_connectionIndicator);
 
-    // настройки поиска в окне Settings.
+    // ????????? ?????? ? ???? Settings.
     m_settingEntries.append(
         {QStringLiteral("centerHotkey"),
-         tr("Центрировать стакан по кнопке"),
-         {QStringLiteral("центр"), QStringLiteral("горячая"), QStringLiteral("center"), QStringLiteral("spread")}});
+         tr("???????????? ?????? ?? ??????"),
+         {QStringLiteral("?????"), QStringLiteral("???????"), QStringLiteral("center"), QStringLiteral("spread")}});
     m_settingEntries.append(
         {QStringLiteral("volumeHighlight"),
-         tr("Подсветка объёмов DOM"),
-         {QStringLiteral("объем"), QStringLiteral("цвет"), QStringLiteral("volume"), QStringLiteral("highlight")}});
+         tr("????????? ??????? DOM"),
+         {QStringLiteral("?????"), QStringLiteral("????"), QStringLiteral("volume"), QStringLiteral("highlight")}});
     QStringList completionNames;
     for (const auto &entry : m_settingEntries) {
         completionNames << entry.name;
@@ -932,7 +932,7 @@ void MainWindow::buildUi()
                         int h = std::min(geom.height(), work.height());
                         int x = work.x() + (work.width() - w) / 2;
                         int y = work.y() + (work.height() - h) / 2;
-                        QRect correctedDesired(x, y, w, h); // Объявляем desired здесь
+                        QRect correctedDesired(x, y, w, h); // ????????? desired ?????
                         setGeometry(correctedDesired);
                         ensureNativeBounds(this, correctedDesired);
                         logToFile(QStringLiteral("Fallback geometry correction after minimize-restore: %1").arg(rectToString(correctedDesired)));
@@ -1109,7 +1109,7 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
     if (!msg) return QMainWindow::nativeEvent(eventType, message, result);
 
     if (msg->message == WM_NCCALCSIZE) {
-        // Remove standard title bar and non-client area — we draw our own TitleBar.
+        // Remove standard title bar and non-client area ? we draw our own TitleBar.
         // For maximized/snapped windows Windows may leave space for the standard
         // non-client frame. When that happens we must explicitly set the client
         // rect to the monitor work area so there are no stray gaps on the right/bottom
@@ -1239,7 +1239,7 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
 
     auto *sidebar = new QFrame(main);
     sidebar->setObjectName(QStringLiteral("SideToolbar"));
-    // чуть шире, как в VSCode (уменьшено на 2px по просьбе)
+    // ???? ????, ??? ? VSCode (????????? ?? 2px ?? ???????)
         sidebar->setFixedWidth(42);
     auto *sideLayout = new QVBoxLayout(sidebar);
     sideLayout->setContentsMargins(0, 12, 0, 12);
@@ -1265,37 +1265,37 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
         return btn;
     };
 
-    // Подключение / статус
+    // ??????????? / ??????
     {
         m_connectionButton = makeSideButton(QStringLiteral("plug-connected"), tr("Connection"));
         sideLayout->addWidget(m_connectionButton, 0, Qt::AlignHCenter);
         connect(m_connectionButton, &QToolButton::clicked, this, &MainWindow::openConnectionsWindow);
     }
 
-    // Финансовый результат / PnL
+    // ?????????? ????????? / PnL
     {
         QToolButton *b = makeSideButton(QStringLiteral("report-money"), tr("P&L / Results"));
         sideLayout->addWidget(b, 0, Qt::AlignHCenter);
     }
 
-    // Сделки / ордера
+    // ?????? / ??????
     {
         QToolButton *b = makeSideButton(QStringLiteral("arrows-exchange"), tr("Trades"));
         sideLayout->addWidget(b, 0, Qt::AlignHCenter);
     }
 
-    // Моды (иконка cube-plus)
+    // ???? (?????? cube-plus)
     auto *modsButton = makeSideButton(QStringLiteral("cube-plus"), tr("Mods"));
     sideLayout->addWidget(modsButton, 0, Qt::AlignHCenter);
     connect(modsButton, &QToolButton::clicked, this, &MainWindow::openPluginsWindow);
 
-    // Алерты
+    // ??????
     {
         QToolButton *b = makeSideButton(QStringLiteral("bell"), tr("Alerts"));
         sideLayout->addWidget(b, 0, Qt::AlignHCenter);
     }
 
-    // Таймер / расписание
+    // ?????? / ??????????
     {
         QToolButton *b = makeSideButton(QStringLiteral("alarm"), tr("Timer"));
         sideLayout->addWidget(b, 0, Qt::AlignHCenter);
@@ -1303,7 +1303,7 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
 
     sideLayout->addStretch(1);
 
-    // Настройки в самом низу (фиксируем внизу)
+    // ????????? ? ????? ???? (????????? ?????)
     auto *settingsNav = makeSideButton(QStringLiteral("settings"), tr("Settings"));
     sideLayout->addWidget(settingsNav, 0, Qt::AlignHCenter | Qt::AlignBottom);
     connect(settingsNav, &QToolButton::clicked, this, &MainWindow::openSettingsWindow);
@@ -1660,36 +1660,80 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
 
     layout->addWidget(scroll, 1);
 
-    auto *orderPanel = new QWidget(column);
-    auto *orderLayout = new QVBoxLayout(orderPanel);
-    orderLayout->setContentsMargins(6, 6, 6, 6);
-    orderLayout->setSpacing(6);
-    auto *orderLabel = new QLabel(tr("Fix (USD)"), orderPanel);
-    orderLabel->setStyleSheet(QStringLiteral("color:#cccccc;"));
-    orderLayout->addWidget(orderLabel);
-    auto *orderSpin = new QDoubleSpinBox(orderPanel);
-    orderSpin->setDecimals(2);
-    orderSpin->setSuffix(QStringLiteral(" $"));
-    orderSpin->setRange(0.01, 1000000.0);
-    orderSpin->setValue(10.0);
-    orderSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    orderLayout->addWidget(orderSpin);
-    auto *presetLayout = new QHBoxLayout();
-    presetLayout->setSpacing(4);
-    const QList<double> presets{1.0, 2.5, 5.0, 10.0, 25.0, 50.0};
-    for (double preset : presets) {
-        auto *btn = new QToolButton(orderPanel);
-        btn->setAutoRaise(true);
+    // Notional presets pinned to viewport (always visible regardless of scroll position).
+    const QList<double> notionalPresets{1.0, 2.5, 5.0, 10.0, 25.0};
+    auto *notionalOverlay = new QWidget(scroll->viewport());
+    notionalOverlay->setAttribute(Qt::WA_TranslucentBackground, true);
+    notionalOverlay->setStyleSheet(QStringLiteral("background: transparent;"));
+    auto *notionalLayout = new QVBoxLayout(notionalOverlay);
+    notionalLayout->setContentsMargins(1, 0, 1, 6);
+    notionalLayout->setSpacing(4);
+    notionalLayout->addStretch();
+
+    auto *notionalGroup = new QButtonGroup(notionalOverlay);
+    notionalGroup->setExclusive(true);
+    for (int i = 0; i < notionalPresets.size(); ++i)
+    {
+        const double preset = notionalPresets[i];
+        auto *btn = new QToolButton(notionalOverlay);
+        btn->setCheckable(true);
+        btn->setText(QString::number(preset, 'g', 6));
+        btn->setFixedSize(52, 21);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setText(QString::number(preset));
-        btn->setFixedWidth(40);
-        connect(btn, &QToolButton::clicked, this, [orderSpin, preset]() {
-            orderSpin->setValue(preset);
+        btn->setStyleSheet(QStringLiteral(
+            "QToolButton {"
+            "  border: 1px solid #4a90e2;"
+            "  border-radius: 0px;"
+            "  padding: 4px 6px;"
+            "  background: rgba(0,0,0,0.18);"
+            "  color: #cfd8dc;"
+            "}"
+            "QToolButton:checked {"
+            "  border-color: #4aa3ff;"
+            "  background: rgba(74,163,255,0.28);"
+            "  color: #e3f2fd;"
+            "}"));
+        notionalGroup->addButton(btn, i);
+        if (preset == 10.0)
+        {
+            btn->setChecked(true);
+            result.orderNotional = preset;
+        }
+        connect(btn, &QToolButton::clicked, this, [this, preset, column]() {
+            WorkspaceTab *tab = nullptr;
+            DomColumn *col = nullptr;
+            int idx = -1;
+            if (locateColumn(column, tab, col, idx) && col)
+            {
+                col->orderNotional = preset;
+            }
         });
-        presetLayout->addWidget(btn);
+        notionalLayout->addWidget(btn);
     }
-    orderLayout->addLayout(presetLayout);
-    layout->addWidget(orderPanel);
+    notionalOverlay->adjustSize();
+
+    auto repositionOverlay = [scroll, notionalOverlay]() {
+        if (!notionalOverlay || !scroll) return;
+        notionalOverlay->adjustSize();
+        const int x = 2;
+        const int bottomMargin = 24;
+        int y = scroll->viewport()->height() - notionalOverlay->height() - bottomMargin;
+        if (y < 8) y = 8;
+        const int maxY = std::max(0, scroll->viewport()->height() - notionalOverlay->height() - 6);
+        if (y > maxY) y = maxY;
+        notionalOverlay->move(x, y);
+        notionalOverlay->raise();
+        notionalOverlay->show();
+    };
+    scroll->viewport()->installEventFilter(this);
+    scroll->viewport()->setProperty("notionalOverlayPtr",
+                                    QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(notionalOverlay)));
+    repositionOverlay();
+    QTimer::singleShot(0, this, repositionOverlay);
+
+    // Position overlay over prints (fixed relative to column)
+    repositionOverlay();
+    QTimer::singleShot(0, this, repositionOverlay);
 
     auto *resizeStub = new QWidget(columnSplitter);
     resizeStub->setMinimumWidth(0);
@@ -1724,7 +1768,7 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
 
     connect(client, &LadderClient::statusMessage, statusLabel, &QLabel::setText);
 
-    // временный мок принтов: подставляем фейковые сделки, пока нет реального потока trades
+    // ????????? ??? ???????: ??????????? ???????? ??????, ???? ??? ????????? ?????? trades
     connect(zoomOutButton, &QToolButton::clicked, this, [dom, prints]() {
         dom->setRowHeight(dom->rowHeight() - 2);
         prints->setRowHeightOnly(dom->rowHeight());
@@ -1757,7 +1801,8 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     result.scrollBar = domScrollBar;
     result.client = client;
     result.levelsSpin = levelsSpin;
-    result.orderNotionalSpin = orderSpin;
+    result.notionalOverlay = notionalOverlay;
+    result.notionalGroup = notionalGroup;
     return result;
 }
 
@@ -1923,10 +1968,10 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
             break;
         }
     }
-    if (!column || !column->orderNotionalSpin) {
+    if (!column) {
         return;
     }
-    const double notional = column->orderNotionalSpin->value();
+    const double notional = column->orderNotional > 0.0 ? column->orderNotional : 0.0;
     if (price <= 0.0 || notional <= 0.0) {
         statusBar()->showMessage(tr("Set a positive order size before trading"), 2000);
         return;
@@ -2041,7 +2086,7 @@ void MainWindow::handleConnectionStateChanged(TradeManager::ConnectionState stat
 
 QIcon MainWindow::loadIcon(const QString &name) const
 {
-    // Ищем просто "<name>.svg" в нескольких базовых местах (appDir, img/, img/icons/, img/icons/outline/).
+    // ???? ?????? "<name>.svg" ? ?????????? ??????? ?????? (appDir, img/, img/icons/, img/icons/outline/).
     const QString relFile = QStringLiteral("%1.svg").arg(name);
     const QString path = resolveAssetPath(relFile);
     if (!path.isEmpty()) {
@@ -2099,7 +2144,7 @@ QString MainWindow::resolveAssetPath(const QString &relative) const
     const QString rel = QDir::fromNativeSeparators(relative);
     const QString appDir = QCoreApplication::applicationDirPath();
 
-    // Ищем только в директории приложения и ее поддиректориях
+    // ???? ?????? ? ?????????? ?????????? ? ?? ??????????????
     const QStringList bases = {
         appDir,
         QDir(appDir).filePath(QStringLiteral("img")),
@@ -2401,6 +2446,25 @@ void MainWindow::openSettingsWindow()
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 {
+    if (event->type() == QEvent::Resize) {
+        if (auto *w = qobject_cast<QWidget *>(obj)) {
+            QVariant ov = w->property("notionalOverlayPtr");
+            if (ov.isValid()) {
+                auto *overlay = reinterpret_cast<QWidget *>(ov.value<quintptr>());
+                if (overlay) {
+                    const int x = 2;
+                    const int bottomMargin = 24;
+                    int y = w->height() - overlay->sizeHint().height() - bottomMargin;
+                    const int maxY = std::max(0, w->height() - overlay->sizeHint().height() - 6);
+                    if (y < 8) y = 8;
+                    if (y > maxY) y = maxY;
+                    overlay->move(x, y);
+                    overlay->raise();
+                }
+            }
+        }
+    }
+
     if (event->type() == QEvent::Wheel && m_capsAdjustMode) {
         if (auto *wheel = static_cast<QWheelEvent *>(event)) {
             const int steps = wheel->angleDelta().y() / 120;
@@ -2484,7 +2548,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         return QMainWindow::eventFilter(obj, event);
     }
 
-    // Глобальные хоткеи, работают из любого виджета.
+    // ?????????? ??????, ???????? ?? ?????? ???????.
     if (event->type() == QEvent::KeyPress) {
         auto *ke = static_cast<QKeyEvent *>(event);
         const int key = ke->key();
@@ -2558,7 +2622,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         return QMainWindow::eventFilter(obj, event);
     }
 
-    // Quick hover handling for side nav buttons: мгновенно переключаем иконку
+    // Quick hover handling for side nav buttons: ????????? ??????????? ??????
     if (event->type() == QEvent::Enter || event->type() == QEvent::Leave) {
         auto *btn = qobject_cast<QToolButton *>(obj);
         if (btn && btn->objectName() == QLatin1String("SideNavButton")) {
@@ -2737,7 +2801,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
                 const QPoint localInTop = m_topBar->mapFromGlobal(globalPt);
                 if (m_topBar->rect().contains(localInTop)) {
                     if (QWidget *child = m_topBar->childAt(localInTop)) {
-                        // Click is over an interactive child — let the child handle it.
+                        // Click is over an interactive child ? let the child handle it.
                         return QMainWindow::eventFilter(obj, event);
                     }
                 }
@@ -3009,19 +3073,19 @@ QVector<SettingsWindow::HotkeyEntry> MainWindow::currentCustomHotkeys() const
 {
     QVector<SettingsWindow::HotkeyEntry> entries;
     entries.append({QStringLiteral("newTab"),
-                    tr("Открыть новую вкладку"),
+                    tr("??????? ????? ???????"),
                     m_newTabKey,
                     m_newTabMods});
     entries.append({QStringLiteral("addLadder"),
-                    tr("Добавить стакан в текущую вкладку"),
+                    tr("???????? ?????? ? ??????? ???????"),
                     m_addLadderKey,
                     m_addLadderMods});
     entries.append({QStringLiteral("refreshLadder"),
-                    tr("Перезапустить активный стакан"),
+                    tr("????????????? ???????? ??????"),
                     m_refreshLadderKey,
                     m_refreshLadderMods});
     entries.append({QStringLiteral("volumeAdjust"),
-                    tr("Режим изменения порогов колесом"),
+                    tr("????? ????????? ??????? ???????"),
                     m_volumeAdjustKey,
                     m_volumeAdjustMods});
     return entries;
