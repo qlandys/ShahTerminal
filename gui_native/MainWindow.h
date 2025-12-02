@@ -207,6 +207,7 @@ private:
     QIcon m_tabCloseIconHover;
     AddAction m_lastAddAction;
     std::array<double, 5> m_defaultNotionalPresets{{1.0, 2.5, 5.0, 10.0, 25.0}};
+    bool m_notionalEditActive = false;
 
     QTimer *m_timeTimer;
     QWidget *m_topBar;
@@ -256,4 +257,8 @@ private:
     Qt::KeyboardModifiers m_refreshLadderMods = Qt::ControlModifier;
     int m_volumeAdjustKey = Qt::Key_CapsLock;
     Qt::KeyboardModifiers m_volumeAdjustMods = Qt::NoModifier;
+    std::array<int, 5> m_notionalPresetKeys{
+        {Qt::Key_1, Qt::Key_2, Qt::Key_3, Qt::Key_4, Qt::Key_5}};
+    std::array<Qt::KeyboardModifiers, 5> m_notionalPresetMods{
+        {Qt::NoModifier, Qt::NoModifier, Qt::NoModifier, Qt::NoModifier, Qt::NoModifier}};
 };

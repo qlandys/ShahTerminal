@@ -974,6 +974,11 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     const int key = event->key();
     const Qt::KeyboardModifiers mods = event->modifiers();
 
+    if (m_notionalEditActive) {
+        QMainWindow::keyPressEvent(event);
+        return;
+    }
+
     if (matchesHotkey(key, mods, m_newTabKey, m_newTabMods)) {
         handleNewTabRequested();
         event->accept();
@@ -993,6 +998,15 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         m_capsAdjustMode = true;
         event->accept();
         return;
+    }
+    for (int i = 0; i < static_cast<int>(m_notionalPresetKeys.size()); ++i)
+    {
+        if (matchesHotkey(key, mods, m_notionalPresetKeys[i], m_notionalPresetMods[i]))
+        {
+            applyNotionalPreset(i);
+            event->accept();
+            return;
+        }
     }
 
     bool match = false;
@@ -2121,6 +2135,7 @@ void MainWindow::startNotionalEdit(QWidget *columnContainer, int presetIndex)
         col->notionalEditField->selectAll();
         col->notionalEditField->setFocus(Qt::OtherFocusReason);
     }
+    m_notionalEditActive = true;
 }
 
 void MainWindow::commitNotionalEdit(QWidget *columnContainer, bool apply)
@@ -2158,6 +2173,7 @@ void MainWindow::commitNotionalEdit(QWidget *columnContainer, bool apply)
 
     col->editingNotionalIndex = -1;
     col->notionalEditOverlay->hide();
+    m_notionalEditActive = false;
 }
 void MainWindow::updateTimeLabel()
 {
@@ -2736,8 +2752,11 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         return QMainWindow::eventFilter(obj, event);
     }
 
-    // ?????????? ??????, ???????? ?? ?????? ???????.
+    // Глобальные хоткеи, работают из любого виджета.
     if (event->type() == QEvent::KeyPress) {
+        if (m_notionalEditActive) {
+            return QMainWindow::eventFilter(obj, event);
+        }
         auto *ke = static_cast<QKeyEvent *>(event);
         const int key = ke->key();
         const Qt::KeyboardModifiers mods = ke->modifiers();
@@ -2754,6 +2773,14 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         if (match) {
             centerActiveLaddersToSpread();
             return true;
+        }
+        for (int i = 0; i < static_cast<int>(m_notionalPresetKeys.size()); ++i)
+        {
+            if (matchesHotkey(key, mods, m_notionalPresetKeys[i], m_notionalPresetMods[i]))
+            {
+                applyNotionalPreset(i);
+                return true;
+            }
         }
     }
 
@@ -3167,6 +3194,15 @@ void MainWindow::loadUserSettings()
     m_volumeAdjustKey = s.value(QStringLiteral("volumeAdjustKey"), int(Qt::Key_CapsLock)).toInt();
     m_volumeAdjustMods = Qt::KeyboardModifiers(
         s.value(QStringLiteral("volumeAdjustMods"), int(Qt::NoModifier)).toInt());
+    for (int i = 0; i < static_cast<int>(m_notionalPresetKeys.size()); ++i)
+    {
+        const QString keyName = QStringLiteral("notionalPresetKey%1").arg(i + 1);
+        const QString modName = QStringLiteral("notionalPresetMods%1").arg(i + 1);
+        m_notionalPresetKeys[i] =
+            s.value(keyName, int(Qt::Key_1) + i).toInt();
+        m_notionalPresetMods[i] =
+            Qt::KeyboardModifiers(s.value(modName, int(Qt::NoModifier)).toInt());
+    }
     s.endGroup();
 
     s.beginGroup(QStringLiteral("clock"));
@@ -3214,6 +3250,13 @@ void MainWindow::saveUserSettings() const
     s.setValue(QStringLiteral("refreshLadderMods"), int(m_refreshLadderMods));
     s.setValue(QStringLiteral("volumeAdjustKey"), m_volumeAdjustKey);
     s.setValue(QStringLiteral("volumeAdjustMods"), int(m_volumeAdjustMods));
+    for (int i = 0; i < static_cast<int>(m_notionalPresetKeys.size()); ++i)
+    {
+        const QString keyName = QStringLiteral("notionalPresetKey%1").arg(i + 1);
+        const QString modName = QStringLiteral("notionalPresetMods%1").arg(i + 1);
+        s.setValue(keyName, m_notionalPresetKeys[i]);
+        s.setValue(modName, int(m_notionalPresetMods[i]));
+    }
     s.endGroup();
 
     s.beginGroup(QStringLiteral("clock"));
@@ -3261,24 +3304,30 @@ QVector<SettingsWindow::HotkeyEntry> MainWindow::currentCustomHotkeys() const
 {
     QVector<SettingsWindow::HotkeyEntry> entries;
     entries.append({QStringLiteral("newTab"),
-                    tr("??????? ????? ???????"),
+                    tr("Открыть новую вкладку"),
                     m_newTabKey,
                     m_newTabMods});
     entries.append({QStringLiteral("addLadder"),
-                    tr("???????? ?????? ? ??????? ???????"),
+                    tr("Добавить стакан в текущую вкладку"),
                     m_addLadderKey,
                     m_addLadderMods});
     entries.append({QStringLiteral("refreshLadder"),
-                    tr("????????????? ???????? ??????"),
+                    tr("Перезапустить активный стакан"),
                     m_refreshLadderKey,
                     m_refreshLadderMods});
     entries.append({QStringLiteral("volumeAdjust"),
-                    tr("????? ????????? ??????? ???????"),
+                    tr("Режим изменения порогов колесом"),
                     m_volumeAdjustKey,
                     m_volumeAdjustMods});
+    for (int i = 0; i < static_cast<int>(m_notionalPresetKeys.size()); ++i)
+    {
+        entries.append({QStringLiteral("notionalPreset%1").arg(i + 1),
+                        tr("Горячая клавиша пресета объема %1").arg(i + 1),
+                        m_notionalPresetKeys[i],
+                        m_notionalPresetMods[i]});
+    }
     return entries;
 }
-
 void MainWindow::updateCustomHotkey(const QString &id, int key, Qt::KeyboardModifiers mods)
 {
     auto assign = [&](int &targetKey, Qt::KeyboardModifiers &targetMods) {
@@ -3294,12 +3343,18 @@ void MainWindow::updateCustomHotkey(const QString &id, int key, Qt::KeyboardModi
     } else if (id == QLatin1String("volumeAdjust")) {
         assign(m_volumeAdjustKey, m_volumeAdjustMods);
         m_capsAdjustMode = false;
+    } else if (id.startsWith(QLatin1String("notionalPreset"))) {
+        bool ok = false;
+        const int idx = id.mid(QStringLiteral("notionalPreset").size()).toInt(&ok) - 1;
+        if (!ok || idx < 0 || idx >= static_cast<int>(m_notionalPresetKeys.size())) {
+            return;
+        }
+        assign(m_notionalPresetKeys[idx], m_notionalPresetMods[idx]);
     } else {
         return;
     }
     saveUserSettings();
 }
-
 bool MainWindow::matchesHotkey(int eventKey,
                                Qt::KeyboardModifiers eventMods,
                                int key,
