@@ -9,6 +9,7 @@
 #include <QVector>
 #include <QStringList>
 #include <QRect>
+#include <array>
 
 class QLabel;
 class QTabBar;
@@ -28,7 +29,6 @@ class QScrollArea;
 class QScrollBar;
 class QSpinBox;
 class QSpinBox;
-class QDoubleSpinBox;
 
 class DomWidget;
 class LadderClient;
@@ -77,6 +77,9 @@ private slots:
     void openSettingsWindow();
     void handleConnectionStateChanged(TradeManager::ConnectionState state, const QString &message);
     void handlePositionChanged(const QString &symbol, const TradePosition &position);
+    void applyNotionalPreset(int presetIndex);
+    void startNotionalEdit(QWidget *columnContainer, int presetIndex);
+    void commitNotionalEdit(QWidget *columnContainer, bool apply);
 
 private:
     struct DomColumn {
@@ -92,7 +95,13 @@ private:
         int lastSplitterIndex = -1;
         QList<int> lastSplitterSizes;
         QSpinBox *levelsSpin = nullptr;
-        QDoubleSpinBox *orderNotionalSpin = nullptr;
+        double orderNotional = 10.0;
+        QWidget *notionalOverlay = nullptr;
+        class QButtonGroup *notionalGroup = nullptr;
+        QWidget *notionalEditOverlay = nullptr;
+        class QLineEdit *notionalEditField = nullptr;
+        int editingNotionalIndex = -1;
+        std::array<double, 5> notionalValues{};
     };
 
     struct WorkspaceTab {
@@ -197,6 +206,7 @@ private:
     QIcon m_tabCloseIconNormal;
     QIcon m_tabCloseIconHover;
     AddAction m_lastAddAction;
+    std::array<double, 5> m_defaultNotionalPresets{{1.0, 2.5, 5.0, 10.0, 25.0}};
 
     QTimer *m_timeTimer;
     QWidget *m_topBar;
@@ -209,7 +219,7 @@ private:
     bool m_nativeSnapEnabled = false;
     int m_resizeBorderWidth = 6; // resize area thickness in px
 
-    // (no custom dragging state — we use native system move/snap)
+    // (no custom dragging state ? we use native system move/snap)
     QWidget *m_draggingDomContainer = nullptr;
     QPoint m_domDragStartGlobal;
     QPoint m_domDragStartWindowOffset;
@@ -231,7 +241,7 @@ private:
     bool m_haveLastNormalGeometry = false;
     Qt::WindowStates m_prevWindowState = Qt::WindowNoState;
 
-    // Hotkey: центрирование стаканов по спреду.
+    // Hotkey: ????????????? ???????? ?? ??????.
     int m_centerKey = Qt::Key_Shift;
     Qt::KeyboardModifiers m_centerMods = Qt::NoModifier;
     bool m_centerAllLadders = true;

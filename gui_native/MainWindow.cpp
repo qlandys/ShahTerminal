@@ -1661,20 +1661,24 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     layout->addWidget(scroll, 1);
 
     // Notional presets pinned to viewport (always visible regardless of scroll position).
-    const QList<double> notionalPresets{1.0, 2.5, 5.0, 10.0, 25.0};
+    for (std::size_t i = 0; i < result.notionalValues.size(); ++i)
+    {
+        result.notionalValues[i] = m_defaultNotionalPresets[i];
+    }
+    const int presetCount = static_cast<int>(result.notionalValues.size());
     auto *notionalOverlay = new QWidget(scroll->viewport());
     notionalOverlay->setAttribute(Qt::WA_TranslucentBackground, true);
     notionalOverlay->setStyleSheet(QStringLiteral("background: transparent;"));
     auto *notionalLayout = new QVBoxLayout(notionalOverlay);
     notionalLayout->setContentsMargins(1, 0, 1, 6);
-    notionalLayout->setSpacing(4);
+    notionalLayout->setSpacing(6);
     notionalLayout->addStretch();
 
     auto *notionalGroup = new QButtonGroup(notionalOverlay);
     notionalGroup->setExclusive(true);
-    for (int i = 0; i < notionalPresets.size(); ++i)
+    for (int i = 0; i < presetCount; ++i)
     {
-        const double preset = notionalPresets[i];
+        const double preset = result.notionalValues[i];
         auto *btn = new QToolButton(notionalOverlay);
         btn->setCheckable(true);
         btn->setText(QString::number(preset, 'g', 6));
@@ -1699,15 +1703,21 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
             btn->setChecked(true);
             result.orderNotional = preset;
         }
-        connect(btn, &QToolButton::clicked, this, [this, preset, column]() {
+        connect(btn, &QToolButton::clicked, this, [this, column, i]() {
             WorkspaceTab *tab = nullptr;
             DomColumn *col = nullptr;
             int idx = -1;
             if (locateColumn(column, tab, col, idx) && col)
             {
-                col->orderNotional = preset;
+                if (i >= 0 && i < static_cast<int>(col->notionalValues.size()))
+                {
+                    col->orderNotional = col->notionalValues[i];
+                }
             }
         });
+        btn->setProperty("domContainerPtr", QVariant::fromValue<void *>(column));
+        btn->setProperty("notionalIndex", i);
+        btn->installEventFilter(this);
         notionalLayout->addWidget(btn);
     }
     notionalOverlay->adjustSize();
@@ -2003,6 +2013,152 @@ void MainWindow::handlePositionChanged(const QString &symbol, const TradePositio
     }
 }
 
+void MainWindow::applyNotionalPreset(int presetIndex)
+{
+    if (presetIndex < 0) {
+        return;
+    }
+    DomColumn *column = focusedDomColumn();
+    if (!column) {
+        if (auto *tab = currentWorkspaceTab()) {
+            if (!tab->columnsData.isEmpty()) {
+                column = &tab->columnsData.front();
+            }
+        }
+    }
+    if (!column) {
+        return;
+    }
+    if (presetIndex >= static_cast<int>(column->notionalValues.size())) {
+        return;
+    }
+
+    column->orderNotional = column->notionalValues[presetIndex];
+    if (column->notionalGroup) {
+        if (auto *btn = column->notionalGroup->button(presetIndex)) {
+            btn->setChecked(true);
+        }
+    }
+
+    statusBar()->showMessage(
+        tr("Size preset set to %1").arg(column->orderNotional, 0, 'g', 6),
+        800);
+}
+
+void MainWindow::startNotionalEdit(QWidget *columnContainer, int presetIndex)
+{
+    if (!columnContainer) {
+        return;
+    }
+    WorkspaceTab *tab = nullptr;
+    DomColumn *col = nullptr;
+    int splitIndex = -1;
+    if (!locateColumn(columnContainer, tab, col, splitIndex) || !col) {
+        return;
+    }
+    if (presetIndex < 0 || presetIndex >= static_cast<int>(col->notionalValues.size())) {
+        return;
+    }
+
+    if (!col->notionalEditOverlay) {
+        auto *overlay = new QWidget(columnContainer);
+        overlay->setObjectName(QStringLiteral("NotionalEditOverlay"));
+        overlay->setStyleSheet(QStringLiteral("background-color: rgba(0,0,0,0.65);"));
+        overlay->hide();
+        overlay->setProperty("domContainerPtr",
+                             QVariant::fromValue<void *>(columnContainer));
+
+        auto *overlayLayout = new QVBoxLayout(overlay);
+        overlayLayout->setContentsMargins(0, 0, 0, 0);
+        overlayLayout->setSpacing(0);
+        overlayLayout->addStretch();
+
+        auto *panel = new QWidget(overlay);
+        panel->setStyleSheet(QStringLiteral(
+            "background-color:#1f1f1f; border:1px solid #4a90e2; border-radius:6px;"));
+        panel->setFixedWidth(220);
+        auto *panelLayout = new QVBoxLayout(panel);
+        panelLayout->setContentsMargins(14, 14, 14, 14);
+        panelLayout->setSpacing(8);
+
+        auto *label = new QLabel(tr("Edit preset (USDT)"), panel);
+        label->setAlignment(Qt::AlignCenter);
+        panelLayout->addWidget(label);
+
+        auto *line = new QLineEdit(panel);
+        line->setAlignment(Qt::AlignCenter);
+        line->setObjectName(QStringLiteral("NotionalEditField"));
+        line->setProperty("domContainerPtr",
+                          QVariant::fromValue<void *>(columnContainer));
+        panelLayout->addWidget(line);
+
+        auto *hint = new QLabel(tr("Enter a value and press Enter"), panel);
+        hint->setAlignment(Qt::AlignCenter);
+        hint->setStyleSheet(QStringLiteral("color:#bbbbbb; font-size:11px;"));
+        panelLayout->addWidget(hint);
+
+        overlayLayout->addWidget(panel, 0, Qt::AlignHCenter | Qt::AlignBottom);
+        overlayLayout->addSpacing(30);
+
+        col->notionalEditOverlay = overlay;
+        col->notionalEditField = line;
+        overlay->installEventFilter(this);
+        line->installEventFilter(this);
+        connect(line, &QLineEdit::returnPressed, this, [this, columnContainer]() {
+            commitNotionalEdit(columnContainer, true);
+        });
+    }
+
+    col->editingNotionalIndex = presetIndex;
+    if (col->notionalEditOverlay) {
+        col->notionalEditOverlay->setGeometry(columnContainer->rect());
+        col->notionalEditOverlay->show();
+        col->notionalEditOverlay->raise();
+    }
+    if (col->notionalEditField) {
+        col->notionalEditField->setText(
+            QString::number(col->notionalValues[presetIndex], 'g', 8));
+        col->notionalEditField->selectAll();
+        col->notionalEditField->setFocus(Qt::OtherFocusReason);
+    }
+}
+
+void MainWindow::commitNotionalEdit(QWidget *columnContainer, bool apply)
+{
+    if (!columnContainer) {
+        return;
+    }
+    WorkspaceTab *tab = nullptr;
+    DomColumn *col = nullptr;
+    int splitIndex = -1;
+    if (!locateColumn(columnContainer, tab, col, splitIndex) || !col) {
+        return;
+    }
+    if (!col->notionalEditOverlay) {
+        return;
+    }
+
+    const int index = col->editingNotionalIndex;
+    if (apply && col->notionalEditField && index >= 0 &&
+        index < static_cast<int>(col->notionalValues.size())) {
+        bool ok = false;
+        const double value = col->notionalEditField->text().toDouble(&ok);
+        if (ok && value > 0.0) {
+            col->notionalValues[index] = value;
+            if (col->notionalGroup) {
+                if (auto *btn = col->notionalGroup->button(index)) {
+                    btn->setText(QString::number(value, 'g', 6));
+                    if (btn->isChecked()) {
+                        col->orderNotional = value;
+                    }
+                }
+            }
+        }
+    }
+
+    col->editingNotionalIndex = -1;
+    col->notionalEditOverlay->hide();
+}
 void MainWindow::updateTimeLabel()
 {
     if (!m_timeLabel) {
@@ -2461,6 +2617,38 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
                     overlay->move(x, y);
                     overlay->raise();
                 }
+            }
+        }
+    }
+
+    if (auto *btn = qobject_cast<QToolButton *>(obj)) {
+        if (btn->property("notionalIndex").isValid()) {
+            if (event->type() == QEvent::MouseButtonDblClick) {
+                auto *column =
+                    static_cast<QWidget *>(btn->property("domContainerPtr").value<void *>());
+                const int presetIndex = btn->property("notionalIndex").toInt();
+                startNotionalEdit(column, presetIndex);
+                return true;
+            }
+        }
+    }
+
+    if (obj->objectName() == QLatin1String("NotionalEditOverlay") &&
+        event->type() == QEvent::MouseButtonPress) {
+        QWidget *column = static_cast<QWidget *>(obj->property("domContainerPtr").value<void *>());
+        commitNotionalEdit(column, false);
+        return true;
+    }
+
+    if (auto *line = qobject_cast<QLineEdit *>(obj)) {
+        if (line->objectName() == QLatin1String("NotionalEditField") &&
+            event->type() == QEvent::KeyPress) {
+            auto *ke = static_cast<QKeyEvent *>(event);
+            if (ke->key() == Qt::Key_Escape) {
+                QWidget *column =
+                    static_cast<QWidget *>(line->property("domContainerPtr").value<void *>());
+                commitNotionalEdit(column, false);
+                return true;
             }
         }
     }
