@@ -1242,6 +1242,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/MainWindow.h
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsockets_global.h
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QDialog
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QMainWindow
+ mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QWidget
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qdialog.h
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qmainwindow.h
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qsizepolicy.h
@@ -1251,6 +1252,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/MainWindow.h
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qtwidgetsglobal.h
  mdp:C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qwidget.h
  mdp:C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/DomTypes.h
+ mdp:C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/DomWidget.h
  mdp:C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/MainWindow.h
  mdp:C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SettingsWindow.h
  mdp:C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeManager.h

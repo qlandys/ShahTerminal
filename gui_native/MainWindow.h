@@ -18,7 +18,9 @@ class QFrame;
 class QPropertyAnimation;
 class QStackedWidget;
 class QToolButton;
+class QListWidget;
 class QSplitter;
+class QSoundEffect;
 class QTimer;
 class QWidget;
 class QLineEdit;
@@ -81,6 +83,7 @@ private slots:
     void applyNotionalPreset(int presetIndex);
     void startNotionalEdit(QWidget *columnContainer, int presetIndex);
     void commitNotionalEdit(QWidget *columnContainer, bool apply);
+    void toggleAlertsPanel();
 
 private:
     struct DomColumn {
@@ -162,6 +165,11 @@ private:
                               Qt::KeyboardModifiers eventMods,
                               int key,
                               Qt::KeyboardModifiers mods);
+    void addNotification(const QString &text, bool unread = true);
+    void updateAlertsBadge();
+    void refreshAlertsList();
+    void markAllNotificationsRead();
+    void repositionAlertsPanel();
 
     WorkspaceTab *currentWorkspaceTab();
     int findTabIndexById(int id) const;
@@ -188,6 +196,12 @@ private:
 
     QLabel *m_statusLabel;
     QLabel *m_pingLabel;
+    QToolButton *m_alertsButton = nullptr;
+    QLabel *m_alertsBadge = nullptr;
+    QWidget *m_alertsPanel = nullptr;
+    QListWidget *m_alertsList = nullptr;
+    class QMediaPlayer *m_notificationPlayer = nullptr;
+    class QAudioOutput *m_notificationOutput = nullptr;
 
     QWidget *m_orderPanel;
     QLabel *m_orderSymbolLabel;
@@ -263,4 +277,11 @@ private:
         {Qt::Key_1, Qt::Key_2, Qt::Key_3, Qt::Key_4, Qt::Key_5}};
     std::array<Qt::KeyboardModifiers, 5> m_notionalPresetMods{
         {Qt::NoModifier, Qt::NoModifier, Qt::NoModifier, Qt::NoModifier, Qt::NoModifier}};
+    struct NotificationEntry {
+        QString text;
+        QDateTime timestamp;
+        bool read = false;
+    };
+    QVector<NotificationEntry> m_notifications;
+    int m_unreadNotifications = 0;
 };

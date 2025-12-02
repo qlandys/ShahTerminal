@@ -75,7 +75,8 @@ template <> constexpr inline auto MainWindow::qt_create_metaobjectdata<qt_meta_t
         "QWidget*",
         "columnContainer",
         "commitNotionalEdit",
-        "apply"
+        "apply",
+        "toggleAlertsPanel"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -132,6 +133,8 @@ template <> constexpr inline auto MainWindow::qt_create_metaobjectdata<qt_meta_t
         QtMocHelpers::SlotData<void(QWidget *, bool)>(35, 2, QMC::AccessPrivate, QMetaType::Void, {{
             { 0x80000000 | 33, 34 }, { QMetaType::Bool, 36 },
         }}),
+        // Slot 'toggleAlertsPanel'
+        QtMocHelpers::SlotData<void()>(37, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -171,6 +174,7 @@ void MainWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 13: _t->applyNotionalPreset((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
         case 14: _t->startNotionalEdit((*reinterpret_cast<std::add_pointer_t<QWidget*>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[2]))); break;
         case 15: _t->commitNotionalEdit((*reinterpret_cast<std::add_pointer_t<QWidget*>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<bool>>(_a[2]))); break;
+        case 16: _t->toggleAlertsPanel(); break;
         default: ;
         }
     }
@@ -221,14 +225,14 @@ int MainWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 16)
+        if (_id < 17)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 16;
+        _id -= 17;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 16)
+        if (_id < 17)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 16;
+        _id -= 17;
     }
     return _id;
 }

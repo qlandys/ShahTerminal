@@ -30,7 +30,7 @@ endif ()
 # Optional native GUI library for high‑performance DOM widget.
 # This requires Qt development libraries; if they are not available,
 # the core backend target above still builds as before.
-find_package(Qt6 COMPONENTS Widgets Gui Network WebSockets QUIET) # Добавляем Gui для Qt6
+find_package(Qt6 COMPONENTS Widgets Gui Network WebSockets Multimedia QUIET) # Добавляем Gui для Qt6
 message(STATUS "Qt6_FOUND: ${Qt6_FOUND}")
 if (Qt6_FOUND)
     add_executable(shah_gui
@@ -55,11 +55,12 @@ if (Qt6_FOUND)
         gui_native/DomWidget.cpp
         gui_native/DomWidget.h
     )
-    target_link_libraries(shah_gui PRIVATE Qt6::Widgets Qt6::Gui Qt6::Network Qt6::WebSockets)
+    target_link_libraries(shah_gui PRIVATE Qt6::Widgets Qt6::Gui Qt6::Network Qt6::WebSockets
+                                          $<$<TARGET_EXISTS:Qt6::Multimedia>:Qt6::Multimedia>)
     target_include_directories(shah_gui PRIVATE external/nlohmann)
 elseif (NOT WIN32)
     # Try Qt5 as a fallback on non‑Windows platforms.
-    find_package(Qt5 COMPONENTS Widgets Gui Network WebSockets QUIET) # Добавляем Gui для Qt5
+    find_package(Qt5 COMPONENTS Widgets Gui Network WebSockets Multimedia QUIET) # Добавляем Gui для Qt5
     if (Qt5Widgets_FOUND)
         add_library(dom_widget STATIC
             gui_native/DomWidget.cpp
@@ -82,7 +83,9 @@ elseif (NOT WIN32)
             gui_native/ConnectionsWindow.cpp
             gui_native/ConnectionsWindow.h
         )
-    target_link_libraries(shah_gui PRIVATE Qt5::Widgets Qt5::Gui Qt5::Network Qt5::WebSockets dom_widget) # Добавляем Qt5::Gui
+    target_link_libraries(shah_gui PRIVATE Qt5::Widgets Qt5::Gui Qt5::Network Qt5::WebSockets
+                                          $<$<TARGET_EXISTS:Qt5::Multimedia>:Qt5::Multimedia>
+                                          dom_widget) # Добавляем Qt5::Gui
     target_include_directories(shah_gui PRIVATE external/nlohmann)
     endif ()
 message(STATUS "Qt5Widgets_FOUND: ${Qt5Widgets_FOUND}")

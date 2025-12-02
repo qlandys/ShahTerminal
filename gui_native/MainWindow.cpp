@@ -49,6 +49,7 @@
 #include <QWindow>
 #include <QDebug>
 #include <QFile>
+#include <QFile>
 #include <QTextStream>
 #include <QProcessEnvironment>
 #include <QPropertyAnimation>
@@ -63,6 +64,22 @@
 #include <QDir>
 #include <cmath>
 #include <algorithm>
+#include <QListWidget>
+#include <QAbstractItemView>
+
+#if __has_include(<QMediaPlayer>)
+#include <QMediaPlayer>
+#define HAS_QMEDIAPLAYER 1
+#else
+#define HAS_QMEDIAPLAYER 0
+#endif
+
+#if __has_include(<QAudioOutput>)
+#include <QAudioOutput>
+#define HAS_QAUDIOOUTPUT 1
+#else
+#define HAS_QAUDIOOUTPUT 0
+#endif
 
 namespace {
 constexpr int kDomColumnMinWidth = 140;
@@ -312,6 +329,49 @@ MainWindow::MainWindow(const QString &backendPath,
     if (!appLogo.isEmpty()) {
         setWindowIcon(QIcon(appLogo));
     }
+
+#if HAS_QMEDIAPLAYER && HAS_QAUDIOOUTPUT
+    // Prefer ffmpeg backend only when its runtime bits are actually deployed.
+#ifdef Q_OS_WIN
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const bool hasFfmpegPlugin =
+        QFile::exists(appDir.filePath(QStringLiteral("multimedia/ffmpegmediaplugin.dll")));
+    auto hasDll = [&](const QString &pattern) {
+        return !appDir.entryList(QStringList{pattern}, QDir::Files).isEmpty();
+    };
+    const bool hasFfmpegRuntime = hasDll(QStringLiteral("avcodec-*.dll"))
+                                  && hasDll(QStringLiteral("avformat-*.dll"))
+                                  && hasDll(QStringLiteral("avutil-*.dll"))
+                                  && hasDll(QStringLiteral("swresample-*.dll"));
+    if (hasFfmpegPlugin && hasFfmpegRuntime) {
+        qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+    } else {
+        qWarning() << "[audio] ffmpeg backend not deployed, falling back to default media backend";
+    }
+#else
+    qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+#endif
+
+    // Notification sound (mp3), relies on Qt Multimedia backend (ffmpeg/wmf)
+    const QString notifSoundPath = resolveAssetPath(QStringLiteral("sounds/notification.mp3"));
+    if (!notifSoundPath.isEmpty()) {
+        m_notificationOutput = new QAudioOutput(this);
+        m_notificationOutput->setVolume(0.85);
+        m_notificationPlayer = new QMediaPlayer(this);
+        m_notificationPlayer->setAudioOutput(m_notificationOutput);
+        if (QFile::exists(notifSoundPath)) {
+            m_notificationPlayer->setSource(QUrl::fromLocalFile(notifSoundPath));
+        } else {
+            qWarning() << "[audio] notification.mp3 not found at" << notifSoundPath;
+        }
+        connect(m_notificationPlayer,
+                &QMediaPlayer::errorOccurred,
+                this,
+                [this](QMediaPlayer::Error err, const QString &errStr) {
+                    qWarning() << "[audio] player error" << err << errStr;
+                });
+    }
+#endif
 
     if (m_tradeManager) {
         connect(m_tradeManager,
@@ -1305,8 +1365,28 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
 
     // ??????
     {
-        QToolButton *b = makeSideButton(QStringLiteral("bell"), tr("Alerts"));
-        sideLayout->addWidget(b, 0, Qt::AlignHCenter);
+        m_alertsButton = makeSideButton(QStringLiteral("bell"), tr("Alerts"));
+        sideLayout->addWidget(m_alertsButton, 0, Qt::AlignHCenter);
+        connect(m_alertsButton, &QToolButton::clicked, this, &MainWindow::toggleAlertsPanel);
+
+        m_alertsBadge = new QLabel(m_alertsButton);
+        m_alertsBadge->setObjectName(QStringLiteral("AlertsBadge"));
+        m_alertsBadge->setAlignment(Qt::AlignCenter);
+        m_alertsBadge->setMinimumWidth(16);
+        m_alertsBadge->setFixedHeight(16);
+        m_alertsBadge->setStyleSheet(
+            "QLabel#AlertsBadge {"
+            "  background-color: #2e8bdc;"
+            "  color: #ffffff;"
+            "  font-weight: 700;"
+            "  border-radius: 8px;"
+            "  border: 1px solid #0f1f30;"
+            "  font-size: 9px;"
+            "  padding: 0 3px;"
+            "}");
+        m_alertsBadge->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_alertsBadge->hide();
+        updateAlertsBadge();
     }
 
     // ?????? / ??????????
@@ -1326,6 +1406,61 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
 
     m_workspaceStack = new QStackedWidget(main);
     layout->addWidget(m_workspaceStack, 1);
+    m_workspaceStack->installEventFilter(this);
+
+    // Alerts panel overlay (hidden by default)
+    m_alertsPanel = new QFrame(m_workspaceStack);
+    m_alertsPanel->setObjectName(QStringLiteral("AlertsPanel"));
+    m_alertsPanel->setVisible(false);
+    m_alertsPanel->setStyleSheet(
+        "QFrame#AlertsPanel {"
+        "  background-color: #15181f;"
+        "  border: 1px solid #28313d;"
+        "  border-radius: 8px;"
+        "}"
+        "QListWidget#AlertsList {"
+        "  background: transparent;"
+        "  border: none;"
+        "  outline: none;"
+        "  color: #e0e0e0;"
+        "}"
+        "QPushButton#AlertsMarkReadButton {"
+        "  background-color: #263445;"
+        "  color: #e0e0e0;"
+        "  padding: 4px 8px;"
+        "  border: 1px solid #2f4054;"
+        "  border-radius: 4px;"
+        "}"
+        "QPushButton#AlertsMarkReadButton:hover {"
+        "  background-color: #2f4054;"
+        "}");
+
+    auto *alertsLayout = new QVBoxLayout(m_alertsPanel);
+    alertsLayout->setContentsMargins(10, 8, 10, 10);
+    alertsLayout->setSpacing(6);
+
+    auto *alertsHeader = new QHBoxLayout();
+    alertsHeader->setContentsMargins(0, 0, 0, 0);
+    alertsHeader->setSpacing(6);
+    auto *alertsTitle = new QLabel(tr("Notifications"), m_alertsPanel);
+    alertsTitle->setStyleSheet("color: #ffffff; font-weight: 600;");
+    auto *markRead = new QPushButton(tr("Mark all read"), m_alertsPanel);
+    markRead->setObjectName(QStringLiteral("AlertsMarkReadButton"));
+    alertsHeader->addWidget(alertsTitle);
+    alertsHeader->addStretch(1);
+    alertsHeader->addWidget(markRead);
+    alertsLayout->addLayout(alertsHeader);
+
+    m_alertsList = new QListWidget(m_alertsPanel);
+    m_alertsList->setObjectName(QStringLiteral("AlertsList"));
+    m_alertsList->setSelectionMode(QAbstractItemView::NoSelection);
+    m_alertsList->setFocusPolicy(Qt::NoFocus);
+    m_alertsList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    alertsLayout->addWidget(m_alertsList, 1);
+
+    connect(markRead, &QPushButton::clicked, this, &MainWindow::markAllNotificationsRead);
+
+    repositionAlertsPanel();
 
     return main;
 }
@@ -1959,7 +2094,37 @@ void MainWindow::handleNewLadderRequested()
 
 void MainWindow::handleLadderStatusMessage(const QString &msg)
 {
-    Q_UNUSED(msg);
+    if (msg.isEmpty()) {
+        return;
+    }
+    const QString lower = msg.toLower();
+    // Ignore noisy heartbeat-style messages
+    if (lower.contains(QStringLiteral("ping")) || lower.contains(QStringLiteral("receiving data"))) {
+        return;
+    }
+
+    static const QStringList keywords = {
+        QStringLiteral("error"),
+        QStringLiteral("fail"),
+        QStringLiteral("reject"),
+        QStringLiteral("denied"),
+        QStringLiteral("invalid"),
+        QStringLiteral("timeout"),
+        QStringLiteral("disconnect"),
+        QStringLiteral("order")
+    };
+    bool important = false;
+    for (const auto &k : keywords) {
+        if (lower.contains(k)) {
+            important = true;
+            break;
+        }
+    }
+    if (!important) {
+        return;
+    }
+
+    addNotification(msg);
 }
 
 void MainWindow::handleLadderPingUpdated(int ms)
@@ -2270,6 +2435,130 @@ void MainWindow::handleConnectionStateChanged(TradeManager::ConnectionState stat
     if (!message.isEmpty()) {
         statusBar()->showMessage(message, 2500);
     }
+
+    if (state == TradeManager::ConnectionState::Error ||
+        state == TradeManager::ConnectionState::Disconnected) {
+        const QString note = message.isEmpty() ? tr("Connection lost") : message;
+        addNotification(note);
+    }
+}
+
+void MainWindow::addNotification(const QString &text, bool unread)
+{
+    static QString lastText;
+    static QDateTime lastTime;
+    const QDateTime now = QDateTime::currentDateTime();
+    if (text == lastText && lastTime.isValid() && lastTime.msecsTo(now) < 3000) {
+        return;
+    }
+    lastText = text;
+    lastTime = now;
+
+    NotificationEntry entry;
+    entry.text = text;
+    entry.timestamp = now;
+    entry.read = !unread;
+    const int maxStored = 99;
+    while (m_notifications.size() >= maxStored) {
+        if (!m_notifications.front().read && m_unreadNotifications > 0) {
+            --m_unreadNotifications;
+        }
+        m_notifications.pop_front();
+    }
+    m_notifications.push_back(entry);
+    if (unread) {
+        ++m_unreadNotifications;
+    }
+    refreshAlertsList();
+    updateAlertsBadge();
+#if HAS_QMEDIAPLAYER && HAS_QAUDIOOUTPUT
+    if (unread && m_notificationPlayer && m_notificationOutput) {
+        m_notificationPlayer->stop();
+        m_notificationPlayer->setPosition(0);
+        m_notificationPlayer->play();
+    }
+#endif
+}
+
+void MainWindow::updateAlertsBadge()
+{
+    if (!m_alertsBadge || !m_alertsButton) {
+        return;
+    }
+
+    if (m_unreadNotifications <= 0) {
+        m_alertsBadge->hide();
+        return;
+    }
+
+    const int capped = std::min(m_unreadNotifications, 99);
+    const QString text = QString::number(capped);
+    m_alertsBadge->setText(text);
+    const int badgeWidth = std::max(16, m_alertsBadge->fontMetrics().horizontalAdvance(text) + 6);
+    m_alertsBadge->setFixedWidth(badgeWidth);
+    const int x = m_alertsButton->width() - badgeWidth - 4;
+    m_alertsBadge->move(std::max(0, x), 2);
+    m_alertsBadge->show();
+}
+
+void MainWindow::refreshAlertsList()
+{
+    if (!m_alertsList) {
+        return;
+    }
+
+    m_alertsList->clear();
+    // Newest first
+    for (auto it = m_notifications.crbegin(); it != m_notifications.crend(); ++it) {
+        const auto &n = *it;
+        const QString text = QStringLiteral("%1\n%2")
+                                 .arg(n.timestamp.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")),
+                                      n.text);
+        auto *item = new QListWidgetItem(text);
+        QFont f = item->font();
+        f.setBold(!n.read);
+        item->setFont(f);
+        item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        m_alertsList->addItem(item);
+    }
+}
+
+void MainWindow::markAllNotificationsRead()
+{
+    bool changed = false;
+    for (auto &n : m_notifications) {
+        if (!n.read) {
+            n.read = true;
+            changed = true;
+        }
+    }
+    if (changed) {
+        m_unreadNotifications = 0;
+        refreshAlertsList();
+        updateAlertsBadge();
+    } else {
+        m_unreadNotifications = 0;
+        updateAlertsBadge();
+    }
+}
+
+void MainWindow::repositionAlertsPanel()
+{
+    if (!m_alertsPanel || !m_workspaceStack) {
+        return;
+    }
+
+    const int margin = 12;
+    const int panelWidth = 320;
+    const int minHeight = 160;
+    const int maxHeight = 340;
+    const int availableHeight = std::max(minHeight, m_workspaceStack->height() - margin * 2);
+    const int panelHeight = std::min(availableHeight, maxHeight);
+    const int x = std::max(margin, m_workspaceStack->width() - panelWidth - margin);
+    const int y = margin;
+
+    m_alertsPanel->setGeometry(x, y, panelWidth, panelHeight);
+    m_alertsPanel->raise();
 }
 
 QIcon MainWindow::loadIcon(const QString &name) const
@@ -2632,9 +2921,29 @@ void MainWindow::openSettingsWindow()
     m_settingsWindow->activateWindow();
 }
 
+void MainWindow::toggleAlertsPanel()
+{
+    if (!m_alertsPanel) {
+        return;
+    }
+
+    const bool show = !m_alertsPanel->isVisible();
+    if (show) {
+        repositionAlertsPanel();
+        m_alertsPanel->show();
+        m_alertsPanel->raise();
+        markAllNotificationsRead();
+    } else {
+        m_alertsPanel->hide();
+    }
+}
+
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 {
     if (event->type() == QEvent::Resize) {
+        if (obj == m_workspaceStack) {
+            repositionAlertsPanel();
+        }
         if (auto *w = qobject_cast<QWidget *>(obj)) {
             QVariant ov = w->property("notionalOverlayPtr");
             if (ov.isValid()) {

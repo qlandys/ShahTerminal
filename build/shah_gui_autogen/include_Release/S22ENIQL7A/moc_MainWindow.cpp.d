@@ -215,6 +215,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsockets_global.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QDialog \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QMainWindow \
+  C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QWidget \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qdialog.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qmainwindow.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qsizepolicy.h \
@@ -224,6 +225,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qtwidgetsglobal.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qwidget.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/DomTypes.h \
+  C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/DomWidget.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SettingsWindow.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeManager.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeTypes.h
