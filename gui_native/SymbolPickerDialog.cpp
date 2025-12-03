@@ -5,18 +5,21 @@
 #include <QLineEdit>
 #include <QListView>
 #include <QModelIndex>
+#include <QComboBox>
+#include <QStandardItemModel>
+#include <QStandardItem>
 #include <QAbstractItemView>
 #include <QRegularExpression>
 #include <QSortFilterProxyModel>
-#include <QStringListModel>
 #include <QVBoxLayout>
+#include <QStyle>
 #include <algorithm>
 
 SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
     : QDialog(parent)
     , m_filterEdit(new QLineEdit(this))
     , m_listView(new QListView(this))
-    , m_model(new QStringListModel(this))
+    , m_model(new QStandardItemModel(this))
     , m_proxy(new QSortFilterProxyModel(this))
 {
     setWindowTitle(tr("Select symbol"));
@@ -29,6 +32,9 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
 
     m_filterEdit->setPlaceholderText(tr("Search..."));
     layout->addWidget(m_filterEdit);
+
+    m_accountCombo = new QComboBox(this);
+    layout->addWidget(m_accountCombo);
 
     m_proxy->setSourceModel(m_model);
     m_proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
@@ -50,8 +56,9 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
     connect(m_listView, &QListView::doubleClicked, this, &SymbolPickerDialog::handleActivated);
 }
 
-void SymbolPickerDialog::setSymbols(const QStringList &symbols)
+void SymbolPickerDialog::setSymbols(const QStringList &symbols, const QSet<QString> &apiOff)
 {
+    m_apiOff = apiOff;
     QStringList cleaned;
     cleaned.reserve(symbols.size());
     for (const QString &sym : symbols) {
@@ -64,10 +71,29 @@ void SymbolPickerDialog::setSymbols(const QStringList &symbols)
     std::sort(cleaned.begin(), cleaned.end(), [](const QString &a, const QString &b) {
         return a.toUpper() < b.toUpper();
     });
-    m_model->setStringList(cleaned);
+    m_model->clear();
+    for (const QString &sym : cleaned) {
+        auto *item = new QStandardItem(sym);
+        item->setEditable(false);
+        if (m_apiOff.contains(sym)) {
+            item->setIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+            item->setToolTip(tr("Symbol not supported for API trading"));
+        }
+        m_model->appendRow(item);
+    }
     m_proxy->invalidate();
     m_proxy->sort(0);
     selectFirstVisible();
+}
+
+void SymbolPickerDialog::setAccounts(const QStringList &accounts)
+{
+    m_accountCombo->clear();
+    if (accounts.isEmpty()) {
+        m_accountCombo->addItem(QStringLiteral("MEXC Spot"));
+    } else {
+        m_accountCombo->addItems(accounts);
+    }
 }
 
 void SymbolPickerDialog::setCurrentSymbol(const QString &symbol)
@@ -77,10 +103,10 @@ void SymbolPickerDialog::setCurrentSymbol(const QString &symbol)
         selectFirstVisible();
         return;
     }
-    const QStringList list = m_model->stringList();
     int sourceRow = -1;
-    for (int i = 0; i < list.size(); ++i) {
-        if (list[i].compare(target, Qt::CaseInsensitive) == 0) {
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        const QString val = m_model->item(i)->text();
+        if (val.compare(target, Qt::CaseInsensitive) == 0) {
             sourceRow = i;
             break;
         }
@@ -99,9 +125,22 @@ void SymbolPickerDialog::setCurrentSymbol(const QString &symbol)
     }
 }
 
+void SymbolPickerDialog::setCurrentAccount(const QString &account)
+{
+    const int idx = m_accountCombo->findText(account, Qt::MatchFixedString);
+    if (idx >= 0) {
+        m_accountCombo->setCurrentIndex(idx);
+    }
+}
+
 QString SymbolPickerDialog::selectedSymbol() const
 {
     return m_selected;
+}
+
+QString SymbolPickerDialog::selectedAccount() const
+{
+    return m_selectedAccount;
 }
 
 void SymbolPickerDialog::handleFilterChanged(const QString &text)
@@ -137,9 +176,8 @@ void SymbolPickerDialog::acceptSelection()
     } else {
         m_selected.clear();
     }
-    if (!m_selected.isEmpty()) {
-        accept();
-    }
+    m_selectedAccount = m_accountCombo->currentText();
+    accept();
 }
 
 void SymbolPickerDialog::selectFirstVisible()

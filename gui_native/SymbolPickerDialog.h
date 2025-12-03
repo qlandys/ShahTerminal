@@ -2,12 +2,14 @@
 
 #include <QDialog>
 #include <QStringList>
+#include <QSet>
 
 class QLineEdit;
 class QListView;
-class QStringListModel;
+class QStandardItemModel;
 class QSortFilterProxyModel;
 class QModelIndex;
+class QComboBox;
 
 class SymbolPickerDialog : public QDialog {
     Q_OBJECT
@@ -15,9 +17,12 @@ class SymbolPickerDialog : public QDialog {
 public:
     explicit SymbolPickerDialog(QWidget *parent = nullptr);
 
-    void setSymbols(const QStringList &symbols);
+    void setSymbols(const QStringList &symbols, const QSet<QString> &apiOff);
+    void setAccounts(const QStringList &accounts);
     void setCurrentSymbol(const QString &symbol);
+    void setCurrentAccount(const QString &account);
     QString selectedSymbol() const;
+    QString selectedAccount() const;
 
 private slots:
     void handleFilterChanged(const QString &text);
@@ -29,7 +34,10 @@ private:
 
     QLineEdit *m_filterEdit;
     QListView *m_listView;
-    QStringListModel *m_model;
+    QStandardItemModel *m_model;
     QSortFilterProxyModel *m_proxy;
+    QComboBox *m_accountCombo;
     QString m_selected;
+    QString m_selectedAccount;
+    QSet<QString> m_apiOff;
 };

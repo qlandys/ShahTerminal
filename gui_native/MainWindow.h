@@ -11,6 +11,7 @@
 #include <QStringList>
 #include <QRect>
 #include <QNetworkAccessManager>
+#include <QSet>
 #include <array>
 
 class QLabel;
@@ -111,6 +112,7 @@ private:
         QVector<DomWidget::LocalOrderMarker> localOrders;
         int tickCompression = 1;
         QToolButton *compressionButton = nullptr;
+        QString accountName;
     };
 
     struct WorkspaceTab {
@@ -178,7 +180,7 @@ private:
                                 OrderSide side,
                                 double price);
     void fetchSymbolLibrary();
-    void mergeSymbolLibrary(const QStringList &symbols);
+    void mergeSymbolLibrary(const QStringList &symbols, const QSet<QString> &apiOff);
     void addNotification(const QString &text, bool unread = true);
     void updateAlertsBadge();
     void refreshAlertsList();
@@ -195,6 +197,7 @@ private:
     QString m_backendPath;
     QStringList m_symbols;
     QStringList m_symbolLibrary;
+    QSet<QString> m_apiOffSymbols;
     int m_levels;
     QNetworkAccessManager m_symbolFetcher;
     bool m_symbolRequestInFlight = false;

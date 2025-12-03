@@ -6,6 +6,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QMetaType \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QObject \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QRect \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/QSet \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QSharedDataPointer \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QString \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QStringList \

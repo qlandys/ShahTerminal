@@ -1,4 +1,5 @@
 C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/S22ENIQL7A/moc_SymbolPickerDialog.cpp: C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SymbolPickerDialog.h \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/QSet \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QStringList \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q17memory.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q20functional.h \

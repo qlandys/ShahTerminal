@@ -68,6 +68,8 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QStandardItemModel>
+#include <QComboBox>
 #include <cmath>
 #include <algorithm>
 #include <QListWidget>
@@ -2088,6 +2090,7 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     result.levelsSpin = levelsSpin;
     result.tickCompression = 1;
     result.compressionButton = compressionButton;
+    result.accountName = QStringLiteral("MEXC Spot");
     result.notionalOverlay = notionalOverlay;
     result.notionalGroup = notionalGroup;
     result.localOrders.clear();
@@ -2201,8 +2204,10 @@ void MainWindow::handleNewLadderRequested()
     const QString defaultSymbol = !m_symbols.isEmpty() ? m_symbols.first() : QStringLiteral("BIOUSDT");
     SymbolPickerDialog picker(this);
     picker.setWindowTitle(tr("Add ladder"));
-    picker.setSymbols(m_symbolLibrary);
+    picker.setSymbols(m_symbolLibrary, m_apiOffSymbols);
+    picker.setAccounts(QStringList{QStringLiteral("MEXC Spot")});
     picker.setCurrentSymbol(defaultSymbol);
+    picker.setCurrentAccount(QStringLiteral("MEXC Spot"));
     if (picker.exec() != QDialog::Accepted) {
         return;
     }
@@ -2210,6 +2215,7 @@ void MainWindow::handleNewLadderRequested()
     if (symbol.isEmpty()) {
         return;
     }
+    const QString account = picker.selectedAccount();
     if (!m_symbolLibrary.contains(symbol, Qt::CaseInsensitive)) {
         m_symbolLibrary.push_back(symbol);
     }
@@ -2217,6 +2223,7 @@ void MainWindow::handleNewLadderRequested()
     setLastAddAction(AddAction::LadderColumn);
 
     DomColumn col = createDomColumn(symbol, *tab);
+    col.accountName = account.isEmpty() ? QStringLiteral("MEXC Spot") : account;
     tab->columnsData.push_back(col);
     if (tab->columns) {
         const int spacerIndex =
@@ -2339,8 +2346,10 @@ void MainWindow::retargetDomColumn(DomColumn &col, const QString &symbol)
         const QString current = col.symbol;
         SymbolPickerDialog picker(this);
         picker.setWindowTitle(tr("Select symbol"));
-        picker.setSymbols(m_symbolLibrary);
+        picker.setSymbols(m_symbolLibrary, m_apiOffSymbols);
+        picker.setAccounts(QStringList{QStringLiteral("MEXC Spot")});
         picker.setCurrentSymbol(current);
+        picker.setCurrentAccount(col.accountName.isEmpty() ? QStringLiteral("MEXC Spot") : col.accountName);
         if (picker.exec() != QDialog::Accepted) {
             return;
         }
@@ -2348,6 +2357,7 @@ void MainWindow::retargetDomColumn(DomColumn &col, const QString &symbol)
         if (sym.isEmpty()) {
             return;
         }
+        col.accountName = picker.selectedAccount();
     } else {
         sym = sym.trimmed().toUpper();
     }
@@ -4050,6 +4060,7 @@ void MainWindow::fetchSymbolLibrary()
         }
         const QJsonArray arr = doc.object().value(QStringLiteral("symbols")).toArray();
         QStringList fetched;
+        QSet<QString> apiOff;
         fetched.reserve(arr.size());
         for (const auto &v : arr) {
             const QJsonObject obj = v.toObject();
@@ -4062,19 +4073,19 @@ void MainWindow::fetchSymbolLibrary()
             const bool tradable = status.isEmpty()
                                   || status.compare(QStringLiteral("TRADING"), Qt::CaseInsensitive) == 0
                                   || status.compare(QStringLiteral("ENABLED"), Qt::CaseInsensitive) == 0;
-            if (!tradable || !spotAllowed) {
-                continue;
-            }
             fetched.push_back(sym);
+            if (!tradable || !spotAllowed) {
+                apiOff.insert(sym);
+            }
         }
         if (!fetched.isEmpty()) {
-            mergeSymbolLibrary(fetched);
+            mergeSymbolLibrary(fetched, apiOff);
             statusBar()->showMessage(tr("Loaded %1 symbols").arg(fetched.size()), 2000);
         }
     });
 }
 
-void MainWindow::mergeSymbolLibrary(const QStringList &symbols)
+void MainWindow::mergeSymbolLibrary(const QStringList &symbols, const QSet<QString> &apiOff)
 {
     QStringList merged;
     merged.reserve(m_symbolLibrary.size() + symbols.size());
@@ -4093,4 +4104,7 @@ void MainWindow::mergeSymbolLibrary(const QStringList &symbols)
         return a.toUpper() < b.toUpper();
     });
     m_symbolLibrary = merged;
+    for (const QString &s : apiOff) {
+        m_apiOffSymbols.insert(s.trimmed().toUpper());
+    }
 }
