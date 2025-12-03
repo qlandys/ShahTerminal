@@ -1,11 +1,15 @@
 #include "SymbolPickerDialog.h"
 
 #include <QDialogButtonBox>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
 #include <QModelIndex>
 #include <QComboBox>
+#include <QToolButton>
 #include <QStandardItemModel>
 #include <QStandardItem>
 #include <QAbstractItemView>
@@ -13,7 +17,33 @@
 #include <QSortFilterProxyModel>
 #include <QVBoxLayout>
 #include <QStyle>
+#include <QColor>
+#include <QPainter>
 #include <algorithm>
+
+namespace {
+QString resolveAssetPath(const QString &relative)
+{
+    const QString rel = QDir::fromNativeSeparators(relative);
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList bases = {
+        appDir,
+        QDir(appDir).filePath(QStringLiteral("img")),
+        QDir(appDir).filePath(QStringLiteral("img/icons")),
+        QDir(appDir).filePath(QStringLiteral("img/icons/outline")),
+        QDir(appDir).filePath(QStringLiteral("../img")),
+        QDir(appDir).filePath(QStringLiteral("../img/icons")),
+        QDir(appDir).filePath(QStringLiteral("../img/icons/outline"))
+    };
+    for (const QString &base : bases) {
+        const QString candidate = QDir(base).filePath(rel);
+        if (QFile::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return QString();
+}
+} // namespace
 
 SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
     : QDialog(parent)
@@ -23,7 +53,8 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
     , m_proxy(new QSortFilterProxyModel(this))
 {
     setWindowTitle(tr("Select symbol"));
-    setModal(true);
+    setModal(false);
+    setWindowModality(Qt::NonModal);
     setMinimumSize(320, 360);
 
     auto *layout = new QVBoxLayout(this);
@@ -36,6 +67,20 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
     m_accountCombo = new QComboBox(this);
     layout->addWidget(m_accountCombo);
 
+    auto *refreshButton = new QToolButton(this);
+    refreshButton->setAutoRaise(true);
+    refreshButton->setToolTip(tr("Refresh symbols list from exchange"));
+    refreshButton->setCursor(Qt::PointingHandCursor);
+    const QString refreshPath = resolveAssetPath(QStringLiteral("icons/outline/refresh.svg"));
+    if (!refreshPath.isEmpty()) {
+        QIcon ico(refreshPath);
+        refreshButton->setIcon(ico);
+        refreshButton->setIconSize(QSize(16, 16));
+    } else {
+        refreshButton->setText(QStringLiteral("↻"));
+    }
+    layout->addWidget(refreshButton);
+
     m_proxy->setSourceModel(m_model);
     m_proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
     m_proxy->setSortCaseSensitivity(Qt::CaseInsensitive);
@@ -44,6 +89,10 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
 
     m_listView->setModel(m_proxy);
     m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_listView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_listView->setIconSize(QSize(16, 16));
+    m_listView->setUniformItemSizes(true);
+    m_listView->setSpacing(2);
     layout->addWidget(m_listView, 1);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -54,6 +103,7 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
     connect(m_filterEdit, &QLineEdit::textChanged, this, &SymbolPickerDialog::handleFilterChanged);
     connect(m_filterEdit, &QLineEdit::returnPressed, this, &SymbolPickerDialog::acceptSelection);
     connect(m_listView, &QListView::doubleClicked, this, &SymbolPickerDialog::handleActivated);
+    connect(refreshButton, &QToolButton::clicked, this, &SymbolPickerDialog::refreshRequested);
 }
 
 void SymbolPickerDialog::setSymbols(const QStringList &symbols, const QSet<QString> &apiOff)
@@ -76,8 +126,12 @@ void SymbolPickerDialog::setSymbols(const QStringList &symbols, const QSet<QStri
         auto *item = new QStandardItem(sym);
         item->setEditable(false);
         if (m_apiOff.contains(sym)) {
-            item->setIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+            const QString apiOffPath = resolveAssetPath(QStringLiteral("icons/outline/api-off.svg"));
+            if (!apiOffPath.isEmpty()) {
+                item->setIcon(QIcon(apiOffPath));
+            }
             item->setToolTip(tr("Symbol not supported for API trading"));
+            item->setForeground(QColor(QStringLiteral("#f26b6b")));
         }
         m_model->appendRow(item);
     }
@@ -86,13 +140,25 @@ void SymbolPickerDialog::setSymbols(const QStringList &symbols, const QSet<QStri
     selectFirstVisible();
 }
 
-void SymbolPickerDialog::setAccounts(const QStringList &accounts)
+void SymbolPickerDialog::setAccounts(const QVector<QPair<QString, QColor>> &accounts)
 {
     m_accountCombo->clear();
     if (accounts.isEmpty()) {
         m_accountCombo->addItem(QStringLiteral("MEXC Spot"));
-    } else {
-        m_accountCombo->addItems(accounts);
+        return;
+    }
+    for (const auto &pair : accounts) {
+        const QString name = pair.first;
+        const QColor color = pair.second;
+        QPixmap px(14, 14);
+        px.fill(Qt::transparent);
+        QPainter p(&px);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(color.isValid() ? color : QColor("#4c9fff"));
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(px.rect().adjusted(1, 1, -1, -1));
+        p.end();
+        m_accountCombo->addItem(QIcon(px), name);
     }
 }
 

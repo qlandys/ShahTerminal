@@ -11,6 +11,10 @@ enum class OrderSide {
 struct MexcCredentials {
     QString apiKey;
     QString secretKey;
+    QString uid;
+    QString proxy;
+    QString colorHex;
+    QString label;
     bool saveSecret = false;
     bool viewOnly = false;
     bool autoConnect = true;

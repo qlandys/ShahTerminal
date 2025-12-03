@@ -1,6 +1,8 @@
 C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/S22ENIQL7A/moc_SymbolPickerDialog.cpp: C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SymbolPickerDialog.h \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/QPair \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QSet \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QStringList \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/QVector \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q17memory.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q20functional.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q20iterator.h \
@@ -125,9 +127,11 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qutf8stringview.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qvariant.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qvarlengtharray.h \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/qvector.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qversiontagging.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qxptype_traits.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qyieldcpu.h \
+  C:/Qt/6.10.1/msvc2022_64/include/QtGui/QColor \
   C:/Qt/6.10.1/msvc2022_64/include/QtGui/qaction.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtGui/qbitmap.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtGui/qbrush.h \

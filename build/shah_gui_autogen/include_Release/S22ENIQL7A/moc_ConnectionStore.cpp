@@ -38,10 +38,19 @@ template <> constexpr inline auto ConnectionStore::qt_create_metaobjectdata<qt_m
 {
     namespace QMC = QtMocConstants;
     QtMocHelpers::StringRefStorage qt_stringData {
-        "ConnectionStore"
+        "ConnectionStore",
+        "credentialsChanged",
+        "",
+        "profileKey",
+        "MexcCredentials",
+        "creds"
     };
 
     QtMocHelpers::UintData qt_methods {
+        // Signal 'credentialsChanged'
+        QtMocHelpers::SignalData<void(const QString &, const MexcCredentials &)>(1, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 3 }, { 0x80000000 | 4, 5 },
+        }}),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -63,10 +72,28 @@ Q_CONSTINIT const QMetaObject ConnectionStore::staticMetaObject = { {
 void ConnectionStore::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
 {
     auto *_t = static_cast<ConnectionStore *>(_o);
-    (void)_t;
-    (void)_c;
-    (void)_id;
-    (void)_a;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->credentialsChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<MexcCredentials>>(_a[2]))); break;
+        default: ;
+        }
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        switch (_id) {
+        default: *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType(); break;
+        case 0:
+            switch (*reinterpret_cast<int*>(_a[1])) {
+            default: *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType(); break;
+            case 1:
+                *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType::fromType< MexcCredentials >(); break;
+            }
+            break;
+        }
+    }
+    if (_c == QMetaObject::IndexOfMethod) {
+        if (QtMocHelpers::indexOfMethod<void (ConnectionStore::*)(const QString & , const MexcCredentials & )>(_a, &ConnectionStore::credentialsChanged, 0))
+            return;
+    }
 }
 
 const QMetaObject *ConnectionStore::metaObject() const
@@ -85,6 +112,24 @@ void *ConnectionStore::qt_metacast(const char *_clname)
 int ConnectionStore::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
 {
     _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 1)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 1;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 1)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 1;
+    }
     return _id;
+}
+
+// SIGNAL 0
+void ConnectionStore::credentialsChanged(const QString & _t1, const MexcCredentials & _t2)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 0, nullptr, _t1, _t2);
 }
 QT_WARNING_POP

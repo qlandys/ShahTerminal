@@ -12,6 +12,7 @@
 #include <QRect>
 #include <QNetworkAccessManager>
 #include <QSet>
+#include <QHash>
 #include <array>
 
 class QLabel;
@@ -41,6 +42,13 @@ class PrintsWidget;
 class PluginsWindow;
 class ConnectionStore;
 class ConnectionsWindow;
+class SymbolPickerDialog;
+
+struct SavedColumn {
+    QString symbol;
+    int compression = 1;
+    QString account;
+};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -58,6 +66,7 @@ protected:
     void changeEvent(QEvent *event) override;
     void updateMaximizeIcon();
     void showEvent(QShowEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void keyReleaseEvent(QKeyEvent *event) override;
 #ifdef Q_OS_WIN
@@ -90,6 +99,7 @@ private slots:
 private:
     struct DomColumn {
         QWidget *container = nullptr;
+        QFrame *header = nullptr;
         QString symbol;
         DomWidget *dom = nullptr;
         LadderClient *client = nullptr;
@@ -113,6 +123,7 @@ private:
         int tickCompression = 1;
         QToolButton *compressionButton = nullptr;
         QString accountName;
+        QColor accountColor;
     };
 
     struct WorkspaceTab {
@@ -129,7 +140,7 @@ private:
 
     void createInitialWorkspace();
     void updateTabUnderline(int index);
-    void createWorkspaceTab();
+    WorkspaceTab createWorkspaceTab(const QVector<SavedColumn> &columns);
     void refreshTabCloseButtons();
     DomColumn createDomColumn(const QString &symbol, WorkspaceTab &tab);
     void toggleDomColumnFloating(QWidget *container, const QPoint &globalPos = QPoint());
@@ -193,12 +204,22 @@ private:
     QIcon loadIconTinted(const QString &name, const QColor &color, const QSize &size) const;
     QString resolveAssetPath(const QString &relative) const;
     void retargetDomColumn(DomColumn &col, const QString &symbol);
+    SymbolPickerDialog *createSymbolPicker(const QString &title,
+                                           const QString &currentSymbol,
+                                           const QString &currentAccount);
+    void applySymbolToColumn(DomColumn &col, const QString &symbol, const QString &accountName);
+    void refreshAccountColors();
+    QColor accountColorFor(const QString &accountName) const;
+    void applyAccountColorsToColumns();
+    void applyTickerLabelStyle(QLabel *label, const QColor &accent, bool hovered = false);
+    void applyHeaderAccent(DomColumn &col);
 
     QString m_backendPath;
     QStringList m_symbols;
     QStringList m_symbolLibrary;
     QSet<QString> m_apiOffSymbols;
     int m_levels;
+    QVector<QVector<SavedColumn>> m_savedLayout;
     QNetworkAccessManager m_symbolFetcher;
     bool m_symbolRequestInFlight = false;
 
@@ -214,6 +235,7 @@ private:
     QLabel *m_connectionIndicator;
     QToolButton *m_connectionButton;
     QLabel *m_timeLabel;
+    QHash<QString, QColor> m_accountColors;
 
     QLabel *m_statusLabel;
     QLabel *m_pingLabel;

@@ -3,6 +3,9 @@
 #include <QDialog>
 #include <QStringList>
 #include <QSet>
+#include <QVector>
+#include <QPair>
+#include <QColor>
 
 class QLineEdit;
 class QListView;
@@ -18,11 +21,14 @@ public:
     explicit SymbolPickerDialog(QWidget *parent = nullptr);
 
     void setSymbols(const QStringList &symbols, const QSet<QString> &apiOff);
-    void setAccounts(const QStringList &accounts);
+    void setAccounts(const QVector<QPair<QString, QColor>> &accounts);
     void setCurrentSymbol(const QString &symbol);
     void setCurrentAccount(const QString &account);
     QString selectedSymbol() const;
     QString selectedAccount() const;
+
+signals:
+    void refreshRequested();
 
 private slots:
     void handleFilterChanged(const QString &text);

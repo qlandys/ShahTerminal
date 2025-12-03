@@ -47,6 +47,7 @@ template <> constexpr inline auto ConnectionsWindow::qt_create_metaobjectdata<qt
         "message",
         "appendLogMessage",
         "handleConnectClicked",
+        "id",
         "handleDisconnectClicked"
     };
 
@@ -60,9 +61,11 @@ template <> constexpr inline auto ConnectionsWindow::qt_create_metaobjectdata<qt
             { QMetaType::QString, 5 },
         }}),
         // Slot 'handleConnectClicked'
-        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
+        QtMocHelpers::SlotData<void(const QString &)>(7, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::QString, 8 },
+        }}),
         // Slot 'handleDisconnectClicked'
-        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -88,7 +91,7 @@ void ConnectionsWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, in
         switch (_id) {
         case 0: _t->handleManagerStateChanged((*reinterpret_cast<std::add_pointer_t<TradeManager::ConnectionState>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2]))); break;
         case 1: _t->appendLogMessage((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
-        case 2: _t->handleConnectClicked(); break;
+        case 2: _t->handleConnectClicked((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
         case 3: _t->handleDisconnectClicked(); break;
         default: ;
         }

@@ -11,6 +11,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QUrl \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QUrlQuery \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QVariant \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/QVector \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q17memory.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q20functional.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/q20iterator.h \
@@ -149,9 +150,11 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qutf8stringview.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qvariant.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qvarlengtharray.h \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/qvector.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qversiontagging.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qxptype_traits.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/qyieldcpu.h \
+  C:/Qt/6.10.1/msvc2022_64/include/QtGui/QColor \
   C:/Qt/6.10.1/msvc2022_64/include/QtGui/qaction.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtGui/qbitmap.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtGui/qbrush.h \

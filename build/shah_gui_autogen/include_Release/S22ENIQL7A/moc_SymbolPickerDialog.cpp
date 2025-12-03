@@ -39,8 +39,9 @@ template <> constexpr inline auto SymbolPickerDialog::qt_create_metaobjectdata<q
     namespace QMC = QtMocConstants;
     QtMocHelpers::StringRefStorage qt_stringData {
         "SymbolPickerDialog",
-        "handleFilterChanged",
+        "refreshRequested",
         "",
+        "handleFilterChanged",
         "text",
         "handleActivated",
         "QModelIndex",
@@ -48,13 +49,15 @@ template <> constexpr inline auto SymbolPickerDialog::qt_create_metaobjectdata<q
     };
 
     QtMocHelpers::UintData qt_methods {
+        // Signal 'refreshRequested'
+        QtMocHelpers::SignalData<void()>(1, 2, QMC::AccessPublic, QMetaType::Void),
         // Slot 'handleFilterChanged'
-        QtMocHelpers::SlotData<void(const QString &)>(1, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { QMetaType::QString, 3 },
+        QtMocHelpers::SlotData<void(const QString &)>(3, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::QString, 4 },
         }}),
         // Slot 'handleActivated'
-        QtMocHelpers::SlotData<void(const QModelIndex &)>(4, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { 0x80000000 | 5, 6 },
+        QtMocHelpers::SlotData<void(const QModelIndex &)>(5, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { 0x80000000 | 6, 7 },
         }}),
     };
     QtMocHelpers::UintData qt_properties {
@@ -79,10 +82,15 @@ void SymbolPickerDialog::qt_static_metacall(QObject *_o, QMetaObject::Call _c, i
     auto *_t = static_cast<SymbolPickerDialog *>(_o);
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
-        case 0: _t->handleFilterChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
-        case 1: _t->handleActivated((*reinterpret_cast<std::add_pointer_t<QModelIndex>>(_a[1]))); break;
+        case 0: _t->refreshRequested(); break;
+        case 1: _t->handleFilterChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
+        case 2: _t->handleActivated((*reinterpret_cast<std::add_pointer_t<QModelIndex>>(_a[1]))); break;
         default: ;
         }
+    }
+    if (_c == QMetaObject::IndexOfMethod) {
+        if (QtMocHelpers::indexOfMethod<void (SymbolPickerDialog::*)()>(_a, &SymbolPickerDialog::refreshRequested, 0))
+            return;
     }
 }
 
@@ -105,15 +113,21 @@ int SymbolPickerDialog::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 2)
+        if (_id < 3)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 2;
+        _id -= 3;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 2)
+        if (_id < 3)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 2;
+        _id -= 3;
     }
     return _id;
+}
+
+// SIGNAL 0
+void SymbolPickerDialog::refreshRequested()
+{
+    QMetaObject::activate(this, &staticMetaObject, 0, nullptr);
 }
 QT_WARNING_POP

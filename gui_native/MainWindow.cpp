@@ -70,6 +70,7 @@
 #include <QNetworkRequest>
 #include <QStandardItemModel>
 #include <QComboBox>
+#include <QPointer>
 #include <cmath>
 #include <algorithm>
 #include <QListWidget>
@@ -329,6 +330,14 @@ MainWindow::MainWindow(const QString &backendPath,
         m_volumeRules = defaultVolumeHighlightRules();
     }
 
+    if (m_connectionStore) {
+        connect(m_connectionStore,
+                &ConnectionStore::credentialsChanged,
+                this,
+                [this](const QString &, const MexcCredentials &) { refreshAccountColors(); });
+    }
+    refreshAccountColors();
+
     m_symbolLibrary = m_symbols;
     const QStringList defaults = {
         QStringLiteral("BTCUSDT"), QStringLiteral("ETHUSDT"), QStringLiteral("SOLUSDT"),
@@ -427,11 +436,6 @@ MainWindow::MainWindow(const QString &backendPath,
                 this,
                 [this](const QString &sym, OrderSide side, double price, double qty) {
                     addLocalOrderMarker(sym, side, price, qty, QDateTime::currentMSecsSinceEpoch());
-                    if (m_successPlayer && m_successOutput) {
-                        m_successPlayer->stop();
-                        m_successPlayer->setPosition(0);
-                        m_successPlayer->play();
-                    }
                     const QString msg = tr("Order placed: %1 %2 @ %3")
                                             .arg(side == OrderSide::Buy ? QStringLiteral("BUY")
                                                                         : QStringLiteral("SELL"))
@@ -1551,7 +1555,26 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
 
 void MainWindow::createInitialWorkspace()
 {
-    createWorkspaceTab();
+    if (!m_savedLayout.isEmpty()) {
+        for (const auto &cols : m_savedLayout) {
+            createWorkspaceTab(cols);
+        }
+    } else {
+        QVector<SavedColumn> cols;
+        cols.reserve(m_symbols.size());
+        for (const QString &s : m_symbols) {
+            const QString trimmed = s.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            SavedColumn sc;
+            sc.symbol = trimmed;
+            sc.compression = 1;
+            sc.account = QStringLiteral("MEXC Spot");
+            cols.push_back(sc);
+        }
+        createWorkspaceTab(cols);
+    }
 }
 
 void MainWindow::updateTabUnderline(int index)
@@ -1591,7 +1614,7 @@ void MainWindow::updateTabUnderline(int index)
     m_tabUnderlineAnim->start();
 }
 
-void MainWindow::createWorkspaceTab()
+MainWindow::WorkspaceTab MainWindow::createWorkspaceTab(const QVector<SavedColumn> &columnsSpec)
 {
     int tabId = 0;
     if (!m_recycledTabIds.isEmpty()) {
@@ -1627,8 +1650,38 @@ void MainWindow::createWorkspaceTab()
     tab.workspace = workspace;
     tab.columns = columnsSplitter;
 
-    for (const QString &sym : m_symbols) {
-        DomColumn col = createDomColumn(sym, tab);
+    QVector<SavedColumn> specs = columnsSpec;
+    if (specs.isEmpty()) {
+        specs.reserve(m_symbols.size());
+        for (const QString &s : m_symbols) {
+            const QString trimmed = s.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            SavedColumn sc;
+            sc.symbol = trimmed;
+            sc.compression = 1;
+            sc.account = QStringLiteral("MEXC Spot");
+            specs.push_back(sc);
+        }
+    }
+
+    for (const auto &spec : specs) {
+        DomColumn col = createDomColumn(spec.symbol, tab);
+        col.tickCompression = std::max(1, spec.compression);
+        col.accountName = spec.account.isEmpty() ? QStringLiteral("MEXC Spot") : spec.account;
+        col.accountColor = accountColorFor(col.accountName);
+        if (col.tickerLabel) {
+            col.tickerLabel->setProperty("accountColor", col.accountColor);
+            applyTickerLabelStyle(col.tickerLabel, col.accountColor, false);
+        }
+        applyHeaderAccent(col);
+        if (col.compressionButton) {
+            col.compressionButton->setText(QStringLiteral("%1x").arg(col.tickCompression));
+        }
+        if (col.client) {
+            col.client->setCompression(col.tickCompression);
+        }
         tab.columnsData.push_back(col);
         columnsSplitter->addWidget(col.container);
         columnsSplitter->setStretchFactor(columnsSplitter->indexOf(col.container), 0);
@@ -1658,6 +1711,7 @@ void MainWindow::createWorkspaceTab()
     m_workspaceTabs->setCurrentIndex(tabIndex);
     m_workspaceStack->setCurrentIndex(stackIndex);
     refreshTabCloseButtons();
+    return tab;
 }
 
 void MainWindow::triggerAddAction(AddAction action)
@@ -1793,8 +1847,14 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     hLayout->setContentsMargins(8, 4, 8, 4);
     hLayout->setSpacing(6);
 
+    result.accountName = QStringLiteral("MEXC Spot");
+    result.accountColor = accountColorFor(result.accountName);
+    result.header = header;
+    applyHeaderAccent(result);
+
     auto *tickerLabel = new QLabel(result.symbol, header);
-    tickerLabel->setStyleSheet("color:#dcdcdc; padding:2px 4px;");
+    tickerLabel->setProperty("accountColor", result.accountColor);
+    applyTickerLabelStyle(tickerLabel, result.accountColor, false);
     tickerLabel->setCursor(Qt::PointingHandCursor);
     tickerLabel->setMouseTracking(true);
     tickerLabel->installEventFilter(this);
@@ -1816,6 +1876,7 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     compressionButton->setCursor(Qt::PointingHandCursor);
     compressionButton->setFixedSize(32, 20);
     compressionButton->setToolTip(tr("Ticks per row (compression)"));
+    compressionButton->setObjectName(QStringLiteral("CompressionButton"));
     hLayout->addWidget(compressionButton);
 
     hLayout->addStretch(1);
@@ -2091,6 +2152,7 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     result.tickCompression = 1;
     result.compressionButton = compressionButton;
     result.accountName = QStringLiteral("MEXC Spot");
+    result.accountColor = accountColorFor(result.accountName);
     result.notionalOverlay = notionalOverlay;
     result.notionalGroup = notionalGroup;
     result.localOrders.clear();
@@ -2190,7 +2252,7 @@ void MainWindow::handleTabCloseRequested(int index)
 void MainWindow::handleNewTabRequested()
 {
     setLastAddAction(AddAction::WorkspaceTab);
-    createWorkspaceTab();
+    createWorkspaceTab(QVector<SavedColumn>());
 }
 
 void MainWindow::handleNewLadderRequested()
@@ -2200,39 +2262,48 @@ void MainWindow::handleNewLadderRequested()
         return;
     }
 
-
-    const QString defaultSymbol = !m_symbols.isEmpty() ? m_symbols.first() : QStringLiteral("BIOUSDT");
-    SymbolPickerDialog picker(this);
-    picker.setWindowTitle(tr("Add ladder"));
-    picker.setSymbols(m_symbolLibrary, m_apiOffSymbols);
-    picker.setAccounts(QStringList{QStringLiteral("MEXC Spot")});
-    picker.setCurrentSymbol(defaultSymbol);
-    picker.setCurrentAccount(QStringLiteral("MEXC Spot"));
-    if (picker.exec() != QDialog::Accepted) {
+    const int tabId = tab->id;
+    SymbolPickerDialog *picker =
+        createSymbolPicker(tr("Add ladder"),
+                           !m_symbols.isEmpty() ? m_symbols.first() : QString(),
+                           QStringLiteral("MEXC Spot"));
+    if (!picker) {
         return;
     }
-    const QString symbol = picker.selectedSymbol().trimmed().toUpper();
-    if (symbol.isEmpty()) {
-        return;
-    }
-    const QString account = picker.selectedAccount();
-    if (!m_symbolLibrary.contains(symbol, Qt::CaseInsensitive)) {
-        m_symbolLibrary.push_back(symbol);
-    }
+    connect(picker, &QDialog::accepted, this, [this, picker, tabId]() {
+        const QString symbol = picker->selectedSymbol().trimmed().toUpper();
+        if (symbol.isEmpty()) {
+            picker->deleteLater();
+            return;
+        }
+        const QString account = picker->selectedAccount().trimmed().isEmpty()
+                                    ? QStringLiteral("MEXC Spot")
+                                    : picker->selectedAccount();
 
-    setLastAddAction(AddAction::LadderColumn);
-
-    DomColumn col = createDomColumn(symbol, *tab);
-    col.accountName = account.isEmpty() ? QStringLiteral("MEXC Spot") : account;
-    tab->columnsData.push_back(col);
-    if (tab->columns) {
-        const int spacerIndex =
-            (tab->columnsSpacer ? tab->columns->indexOf(tab->columnsSpacer) : -1);
-        const int insertIndex =
-            spacerIndex >= 0 ? spacerIndex : tab->columns->count();
-        tab->columns->insertWidget(insertIndex, col.container);
-        tab->columns->setStretchFactor(tab->columns->indexOf(col.container), 0);
-    }
+        const int idx = findTabIndexById(tabId);
+        if (idx < 0 || idx >= m_tabs.size()) {
+            picker->deleteLater();
+            return;
+        }
+        setLastAddAction(AddAction::LadderColumn);
+        WorkspaceTab &targetTab = m_tabs[idx];
+        DomColumn col = createDomColumn(symbol, targetTab);
+        applySymbolToColumn(col, symbol, account);
+        targetTab.columnsData.push_back(col);
+        if (targetTab.columns) {
+            const int spacerIndex =
+                (targetTab.columnsSpacer ? targetTab.columns->indexOf(targetTab.columnsSpacer) : -1);
+            const int insertIndex = spacerIndex >= 0 ? spacerIndex : targetTab.columns->count();
+            targetTab.columns->insertWidget(insertIndex, col.container);
+            targetTab.columns->setStretchFactor(targetTab.columns->indexOf(col.container), 0);
+        }
+        saveUserSettings();
+        picker->deleteLater();
+    });
+    connect(picker, &QDialog::rejected, picker, &QObject::deleteLater);
+    picker->open();
+    picker->raise();
+    picker->activateWindow();
 }
 
 void MainWindow::handleLadderStatusMessage(const QString &msg)
@@ -2340,54 +2411,46 @@ void MainWindow::handlePositionChanged(const QString &symbol, const TradePositio
 
 void MainWindow::retargetDomColumn(DomColumn &col, const QString &symbol)
 {
-    QString sym = symbol;
+    QString sym = symbol.trimmed().toUpper();
     if (sym.isEmpty()) {
-        // Ask user to pick via simple dialog with filtering.
-        const QString current = col.symbol;
-        SymbolPickerDialog picker(this);
-        picker.setWindowTitle(tr("Select symbol"));
-        picker.setSymbols(m_symbolLibrary, m_apiOffSymbols);
-        picker.setAccounts(QStringList{QStringLiteral("MEXC Spot")});
-        picker.setCurrentSymbol(current);
-        picker.setCurrentAccount(col.accountName.isEmpty() ? QStringLiteral("MEXC Spot") : col.accountName);
-        if (picker.exec() != QDialog::Accepted) {
+        // Non-blocking picker to avoid freezing the main window while selecting.
+        SymbolPickerDialog *picker = createSymbolPicker(tr("Select symbol"),
+                                                        col.symbol,
+                                                        col.accountName.isEmpty() ? QStringLiteral("MEXC Spot")
+                                                                                  : col.accountName);
+        if (!picker) {
             return;
         }
-        sym = picker.selectedSymbol().trimmed().toUpper();
-        if (sym.isEmpty()) {
-            return;
-        }
-        col.accountName = picker.selectedAccount();
-    } else {
-        sym = sym.trimmed().toUpper();
-    }
-    if (sym.isEmpty() || sym == col.symbol) {
+        QPointer<QWidget> container = col.container;
+        connect(picker, &QDialog::accepted, this, [this, picker, container]() {
+            if (!container) {
+                picker->deleteLater();
+                return;
+            }
+            WorkspaceTab *tab = nullptr;
+            DomColumn *colPtr = nullptr;
+            int splitIndex = -1;
+            if (!locateColumn(container, tab, colPtr, splitIndex) || !colPtr) {
+                picker->deleteLater();
+                return;
+            }
+            applySymbolToColumn(*colPtr, picker->selectedSymbol(), picker->selectedAccount());
+            picker->deleteLater();
+            saveUserSettings();
+        });
+        connect(picker, &QDialog::rejected, picker, &QObject::deleteLater);
+        picker->open();
+        picker->raise();
+        picker->activateWindow();
         return;
     }
 
-    // Remember in library.
-    if (!m_symbolLibrary.contains(sym, Qt::CaseInsensitive)) {
-        m_symbolLibrary.push_back(sym);
+    if (sym == col.symbol) {
+        return;
     }
 
-    col.symbol = sym;
-    if (col.tickerLabel) {
-        col.tickerLabel->setText(sym);
-    }
-    if (col.localOrders.size() > 0) {
-        col.localOrders.clear();
-        if (col.dom) {
-            col.dom->setLocalOrders(col.localOrders);
-        }
-        if (col.prints) {
-            QVector<LocalOrderMarker> empty;
-            col.prints->setLocalOrders(empty);
-        }
-    }
-    const int levels = col.levelsSpin ? col.levelsSpin->value() : m_levels;
-    if (col.client) {
-        col.client->restart(sym, levels);
-    }
+    applySymbolToColumn(col, sym, col.accountName);
+    saveUserSettings();
 }
 
 void MainWindow::applyNotionalPreset(int presetIndex)
@@ -3459,13 +3522,13 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         for (auto &col : tab.columnsData) {
             if (obj == col.tickerLabel && event->type() == QEvent::Enter) {
                 if (col.tickerLabel) {
-                    col.tickerLabel->setStyleSheet("color:#ffffff; padding:2px 4px; background:#2d2d2d;");
+                    applyTickerLabelStyle(col.tickerLabel, col.accountColor, true);
                 }
                 return true;
             }
             if (obj == col.tickerLabel && event->type() == QEvent::Leave) {
                 if (col.tickerLabel) {
-                    col.tickerLabel->setStyleSheet("color:#dcdcdc; padding:2px 4px;");
+                    applyTickerLabelStyle(col.tickerLabel, col.accountColor, false);
                 }
                 return true;
             }
@@ -3766,6 +3829,42 @@ void MainWindow::loadUserSettings()
     std::sort(m_volumeRules.begin(), m_volumeRules.end(), [](const VolumeHighlightRule &a, const VolumeHighlightRule &b) {
         return a.threshold < b.threshold;
     });
+
+    s.beginGroup(QStringLiteral("symbols"));
+    const QStringList savedSymbols = s.value(QStringLiteral("list")).toStringList();
+    const QStringList savedApiOff = s.value(QStringLiteral("apiOff")).toStringList();
+    if (!savedSymbols.isEmpty()) {
+        m_symbolLibrary = savedSymbols;
+    }
+    for (const QString &sym : savedApiOff) {
+        m_apiOffSymbols.insert(sym.trimmed().toUpper());
+    }
+    s.endGroup();
+
+    m_savedLayout.clear();
+    s.beginGroup(QStringLiteral("workspace"));
+    int tabCount = s.beginReadArray(QStringLiteral("tabs"));
+    for (int t = 0; t < tabCount; ++t) {
+        s.setArrayIndex(t);
+        QVector<SavedColumn> cols;
+        int colCount = s.beginReadArray(QStringLiteral("columns"));
+        for (int c = 0; c < colCount; ++c) {
+            s.setArrayIndex(c);
+            SavedColumn sc;
+            sc.symbol = s.value(QStringLiteral("symbol")).toString();
+            sc.compression = s.value(QStringLiteral("compression"), 1).toInt();
+            sc.account = s.value(QStringLiteral("account"), QStringLiteral("MEXC Spot")).toString();
+            if (!sc.symbol.trimmed().isEmpty()) {
+                cols.push_back(sc);
+            }
+        }
+        s.endArray();
+        if (!cols.isEmpty()) {
+            m_savedLayout.push_back(cols);
+        }
+    }
+    s.endArray();
+    s.endGroup();
 }
 
 void MainWindow::saveUserSettings() const
@@ -3809,6 +3908,29 @@ void MainWindow::saveUserSettings() const
         s.setArrayIndex(i);
         s.setValue(QStringLiteral("threshold"), m_volumeRules[i].threshold);
         s.setValue(QStringLiteral("color"), m_volumeRules[i].color.name(QColor::HexRgb));
+    }
+    s.endArray();
+    s.endGroup();
+
+    s.beginGroup(QStringLiteral("symbols"));
+    s.setValue(QStringLiteral("list"), m_symbolLibrary);
+    s.setValue(QStringLiteral("apiOff"), QStringList(m_apiOffSymbols.begin(), m_apiOffSymbols.end()));
+    s.endGroup();
+
+    s.beginGroup(QStringLiteral("workspace"));
+    s.beginWriteArray(QStringLiteral("tabs"));
+    for (int t = 0; t < m_tabs.size(); ++t) {
+        s.setArrayIndex(t);
+        const auto &tab = m_tabs[t];
+        s.beginWriteArray(QStringLiteral("columns"));
+        for (int c = 0; c < tab.columnsData.size(); ++c) {
+            s.setArrayIndex(c);
+            const auto &col = tab.columnsData[c];
+            s.setValue(QStringLiteral("symbol"), col.symbol);
+            s.setValue(QStringLiteral("compression"), col.tickCompression);
+            s.setValue(QStringLiteral("account"), col.accountName);
+        }
+        s.endArray();
     }
     s.endArray();
     s.endGroup();
@@ -3950,6 +4072,12 @@ void MainWindow::showEvent(QShowEvent *event)
         m_nativeSnapEnabled = true;
     }
 #endif
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    saveUserSettings();
+    QMainWindow::closeEvent(event);
 }
 void MainWindow::addLocalOrderMarker(const QString &symbol,
                                      OrderSide side,
@@ -4108,3 +4236,183 @@ void MainWindow::mergeSymbolLibrary(const QStringList &symbols, const QSet<QStri
         m_apiOffSymbols.insert(s.trimmed().toUpper());
     }
 }
+
+SymbolPickerDialog *MainWindow::createSymbolPicker(const QString &title,
+                                                   const QString &currentSymbol,
+                                                   const QString &currentAccount)
+{
+    auto *dlg = new SymbolPickerDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose, true);
+    dlg->setModal(false);
+    dlg->setWindowModality(Qt::NonModal);
+    dlg->setWindowTitle(title);
+    dlg->setSymbols(m_symbolLibrary, m_apiOffSymbols);
+
+    QVector<QPair<QString, QColor>> accounts;
+    QSet<QString> seen;
+    for (auto it = m_accountColors.constBegin(); it != m_accountColors.constEnd(); ++it) {
+        accounts.push_back({it.key(), it.value()});
+        seen.insert(it.key().toLower());
+    }
+    auto ensureAccount = [&](const QString &name, const QColor &fallback) {
+        if (seen.contains(name.toLower())) return;
+        accounts.push_back({name, fallback});
+        seen.insert(name.toLower());
+    };
+    ensureAccount(QStringLiteral("MEXC Spot"), QColor("#4c9fff"));
+    ensureAccount(QStringLiteral("MEXC Futures"), QColor("#f5b642"));
+    dlg->setAccounts(accounts);
+    dlg->setCurrentSymbol(currentSymbol);
+    dlg->setCurrentAccount(currentAccount.isEmpty() ? QStringLiteral("MEXC Spot") : currentAccount);
+    connect(dlg, &SymbolPickerDialog::refreshRequested, this, &MainWindow::fetchSymbolLibrary);
+    return dlg;
+}
+
+void MainWindow::applySymbolToColumn(DomColumn &col,
+                                     const QString &symbol,
+                                     const QString &accountName)
+{
+    const QString sym = symbol.trimmed().toUpper();
+    if (sym.isEmpty()) {
+        return;
+    }
+    QString account = accountName.trimmed();
+    if (account.isEmpty()) {
+        account = QStringLiteral("MEXC Spot");
+    }
+
+    if (!m_symbolLibrary.contains(sym, Qt::CaseInsensitive)) {
+        m_symbolLibrary.push_back(sym);
+    }
+
+    col.symbol = sym;
+    col.accountName = account;
+    col.accountColor = accountColorFor(account);
+    if (col.tickerLabel) {
+        col.tickerLabel->setProperty("accountColor", col.accountColor);
+        col.tickerLabel->setText(sym);
+        applyTickerLabelStyle(col.tickerLabel, col.accountColor, false);
+    }
+    applyHeaderAccent(col);
+
+    if (!col.localOrders.isEmpty()) {
+        col.localOrders.clear();
+        if (col.dom) {
+            col.dom->setLocalOrders(col.localOrders);
+        }
+        if (col.prints) {
+            QVector<LocalOrderMarker> empty;
+            col.prints->setLocalOrders(empty);
+        }
+    }
+
+    const int levels = col.levelsSpin ? col.levelsSpin->value() : m_levels;
+    if (col.client) {
+        col.client->restart(sym, levels);
+    }
+}
+
+void MainWindow::refreshAccountColors()
+{
+    m_accountColors.clear();
+    auto insertProfile = [&](ConnectionStore::Profile profile,
+                             const QString &fallbackName,
+                             const QString &fallbackColor) {
+        MexcCredentials creds =
+            m_connectionStore ? m_connectionStore->loadMexcCredentials(profile) : MexcCredentials{};
+        QString name = creds.label.trimmed();
+        if (name.isEmpty()) {
+            name = fallbackName;
+        }
+        QColor color = QColor(!creds.colorHex.isEmpty() ? creds.colorHex : fallbackColor);
+        if (!color.isValid()) {
+            color = QColor(fallbackColor);
+        }
+        m_accountColors.insert(name, color);
+    };
+    insertProfile(ConnectionStore::Profile::MexcSpot,
+                  QStringLiteral("MEXC Spot"),
+                  QStringLiteral("#4c9fff"));
+    insertProfile(ConnectionStore::Profile::MexcFutures,
+                  QStringLiteral("MEXC Futures"),
+                  QStringLiteral("#f5b642"));
+    applyAccountColorsToColumns();
+}
+
+QColor MainWindow::accountColorFor(const QString &accountName) const
+{
+    const QString nameLower = accountName.trimmed().toLower();
+    for (auto it = m_accountColors.constBegin(); it != m_accountColors.constEnd(); ++it) {
+        if (it.key().trimmed().toLower() == nameLower) {
+            return it.value();
+        }
+    }
+    if (nameLower.contains(QStringLiteral("future"))) {
+        return QColor("#f5b642");
+    }
+    return QColor("#4c9fff");
+}
+
+void MainWindow::applyAccountColorsToColumns()
+{
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            col.accountColor = accountColorFor(col.accountName);
+            if (col.tickerLabel) {
+                col.tickerLabel->setProperty("accountColor", col.accountColor);
+                applyTickerLabelStyle(col.tickerLabel, col.accountColor, false);
+            }
+            applyHeaderAccent(col);
+        }
+    }
+}
+
+void MainWindow::applyTickerLabelStyle(QLabel *label, const QColor &accent, bool hovered)
+{
+    if (!label) {
+        return;
+    }
+    QColor textColor = accent.isValid() ? accent : QColor("#8ab4ff");
+    if (hovered) {
+        textColor = textColor.lighter(125);
+    }
+    label->setStyleSheet(
+        QStringLiteral("QLabel { color:%1; font-weight:600; padding:0px; }")
+            .arg(textColor.name(QColor::HexRgb)));
+}
+
+void MainWindow::applyHeaderAccent(DomColumn &col)
+{
+    if (!col.header) {
+        return;
+    }
+    const QColor base = col.accountColor.isValid() ? col.accountColor : QColor("#3a7bd5");
+    const QColor border = base.darker(135);
+    const QString style = QStringLiteral(
+        "QFrame#DomTitleBar {"
+        "  background:%1;"
+        "  border:1px solid %2;"
+        "  border-radius:0px;"
+        "}"
+        "QToolButton {"
+        "  background: transparent;"
+        "  color: #f0f0f0;"
+        "}"
+        "QToolButton:hover {"
+        "  background: rgba(255,255,255,0.07);"
+        "}"
+        "QSpinBox {"
+        "  background: rgba(0,0,0,0.25);"
+        "  color: #ffffff;"
+        "  border: 1px solid %2;"
+        "  border-radius: 4px;"
+        "  padding-right: 6px;"
+        "}"
+        "QToolButton#CompressionButton { padding:0 4px; }")
+                           .arg(base.name(QColor::HexRgb))
+                           .arg(border.name(QColor::HexRgb));
+    col.header->setStyleSheet(style);
+}
+
+ВЫФ
+ВФЫ

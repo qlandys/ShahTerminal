@@ -25,6 +25,17 @@ ConnectionStore::ConnectionStore(QObject *parent)
 {
 }
 
+QString ConnectionStore::profileKey(Profile profile) const
+{
+    switch (profile) {
+    case Profile::MexcFutures:
+        return QStringLiteral("mexcFutures");
+    case Profile::MexcSpot:
+    default:
+        return QStringLiteral("mexcSpot");
+    }
+}
+
 QString ConnectionStore::storagePath() const
 {
     return ensureConfigDir();
@@ -35,7 +46,7 @@ QString ConnectionStore::credentialsFilePath() const
     return storagePath() + QLatin1String("/connections.json");
 }
 
-MexcCredentials ConnectionStore::loadMexcCredentials() const
+MexcCredentials ConnectionStore::loadMexcCredentials(Profile profile) const
 {
     QFile file(credentialsFilePath());
     if (!file.exists()) {
@@ -53,19 +64,28 @@ MexcCredentials ConnectionStore::loadMexcCredentials() const
         return {};
     }
     const QJsonObject root = doc.object();
-    const QJsonObject mexcObj = root.value(QStringLiteral("mexcSpot")).toObject();
+    const QJsonObject mexcObj = root.value(profileKey(profile)).toObject();
     MexcCredentials creds;
     creds.apiKey = mexcObj.value(QStringLiteral("apiKey")).toString();
+    creds.secretKey = mexcObj.value(QStringLiteral("secretKey")).toString();
+    creds.uid = mexcObj.value(QStringLiteral("uid")).toString();
+    creds.proxy = mexcObj.value(QStringLiteral("proxy")).toString();
+    creds.colorHex = mexcObj.value(QStringLiteral("color")).toString();
+    creds.label = mexcObj.value(QStringLiteral("label")).toString();
     creds.saveSecret = mexcObj.value(QStringLiteral("saveSecret")).toBool(false);
     creds.viewOnly = mexcObj.value(QStringLiteral("viewOnly")).toBool(false);
     creds.autoConnect = mexcObj.value(QStringLiteral("autoConnect")).toBool(true);
-    if (creds.saveSecret) {
-        creds.secretKey = mexcObj.value(QStringLiteral("secretKey")).toString();
+    if (!creds.saveSecret) {
+        creds.secretKey.clear();
+    }
+    if (creds.colorHex.isEmpty()) {
+        creds.colorHex = (profile == Profile::MexcFutures) ? QStringLiteral("#f5b642")
+                                                           : QStringLiteral("#4c9fff");
     }
     return creds;
 }
 
-void ConnectionStore::saveMexcCredentials(const MexcCredentials &creds)
+void ConnectionStore::saveMexcCredentials(const MexcCredentials &creds, Profile profile)
 {
     QFile file(credentialsFilePath());
     QJsonObject root;
@@ -79,6 +99,10 @@ void ConnectionStore::saveMexcCredentials(const MexcCredentials &creds)
 
     QJsonObject mexcObj;
     mexcObj.insert(QStringLiteral("apiKey"), creds.apiKey);
+    mexcObj.insert(QStringLiteral("uid"), creds.uid);
+    mexcObj.insert(QStringLiteral("proxy"), creds.proxy);
+    mexcObj.insert(QStringLiteral("color"), creds.colorHex);
+    mexcObj.insert(QStringLiteral("label"), creds.label);
     mexcObj.insert(QStringLiteral("saveSecret"), creds.saveSecret);
     mexcObj.insert(QStringLiteral("viewOnly"), creds.viewOnly);
     mexcObj.insert(QStringLiteral("autoConnect"), creds.autoConnect);
@@ -87,7 +111,7 @@ void ConnectionStore::saveMexcCredentials(const MexcCredentials &creds)
     } else {
         mexcObj.remove(QStringLiteral("secretKey"));
     }
-    root.insert(QStringLiteral("mexcSpot"), mexcObj);
+    root.insert(profileKey(profile), mexcObj);
 
     QSaveFile saveFile(credentialsFilePath());
     if (!saveFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
@@ -96,4 +120,5 @@ void ConnectionStore::saveMexcCredentials(const MexcCredentials &creds)
     QJsonDocument doc(root);
     saveFile.write(doc.toJson(QJsonDocument::Indented));
     saveFile.commit();
+    emit credentialsChanged(profileKey(profile), creds);
 }

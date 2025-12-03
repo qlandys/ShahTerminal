@@ -5,6 +5,8 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QIcon>
+#include <QGuiApplication>
+#include <QSurfaceFormat>
 
 static QString resolveAssetPath(const QString &relative)
 {
@@ -38,52 +40,71 @@ int main(int argc, char **argv)
 {
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    QCoreApplication::setAttribute(Qt::AA_UseStyleSheetPropagationInWidgetStyles);
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+        Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
+    QSurfaceFormat fmt;
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    fmt.setProfile(QSurfaceFormat::NoProfile);
+    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    fmt.setSamples(4);
+    fmt.setSwapInterval(0);
+    QSurfaceFormat::setDefaultFormat(fmt);
+
     QApplication app(argc, argv);
-    
-    // Устанавливаем иконку приложения
+
     const QString appDir = QCoreApplication::applicationDirPath();
     const QString logoPath = resolveAssetPath(QStringLiteral("logo.png"));
     if (!logoPath.isEmpty()) {
         app.setWindowIcon(QIcon(logoPath));
     }
 
-    // Добавляем путь к плагинам Qt
     app.addLibraryPath(app.applicationDirPath() + "/plugins");
 
-    // Try to load JetBrainsMono from local font/ directory.
     QString appFontFamily;
-    const QStringList candidates = {
-        QDir(appDir).filePath(QStringLiteral("font/JetBrainsMono-Regular.ttf")),
-        QDir(appDir).filePath(QStringLiteral("../font/JetBrainsMono-Regular.ttf")),
-        QDir(appDir).filePath(QStringLiteral("../../font/JetBrainsMono-Regular.ttf")),
-        QStringLiteral("font/JetBrainsMono-Regular.ttf")};
-
-    QString fontPath;
-    for (const QString &candidate : candidates) {
-        if (QFile::exists(candidate)) {
-            fontPath = candidate;
-            break;
+    const QStringList fontDirs = {
+        QDir(appDir).filePath(QStringLiteral("font")),
+        QDir(appDir).filePath(QStringLiteral("../font")),
+        QDir(appDir).filePath(QStringLiteral("../../font"))};
+    const QStringList preferredFiles = {
+        QStringLiteral("InterVariable.ttf"),
+        QStringLiteral("Inter-Regular.ttf"),
+        QStringLiteral("Inter_18pt-Regular.ttf")};
+    for (const QString &dirPath : fontDirs) {
+        QDir dir(dirPath);
+        if (!dir.exists()) continue;
+        QStringList files;
+        for (const QString &pf : preferredFiles) {
+            if (dir.exists(pf)) files << pf;
         }
-    }
-
-    if (!fontPath.isEmpty()) {
-        const int id = QFontDatabase::addApplicationFont(fontPath);
-        if (id >= 0) {
+        files << dir.entryList(QStringList() << QStringLiteral("Inter*.ttf"), QDir::Files);
+        for (const QString &file : files) {
+            const int id = QFontDatabase::addApplicationFont(dir.filePath(file));
+            if (id < 0) continue;
             const QStringList families = QFontDatabase::applicationFontFamilies(id);
-            if (!families.isEmpty()) {
-                appFontFamily = families.first();
+            for (const QString &fam : families) {
+                if (fam.startsWith(QStringLiteral("Inter"), Qt::CaseInsensitive)) {
+                    appFontFamily = fam;
+                    break;
+                }
             }
+            if (!appFontFamily.isEmpty()) break;
         }
+        if (!appFontFamily.isEmpty()) break;
     }
 
-    if (!appFontFamily.isEmpty()) {
-        app.setFont(QFont(appFontFamily, 9));
-    } else {
-        app.setFont(QFont(QStringLiteral("Segoe UI"), 9));
-    }
+    QFont appFont = appFontFamily.isEmpty() ? QFont(QStringLiteral("Segoe UI"), 10)
+                                            : QFont(appFontFamily, 10, QFont::Normal);
+    const auto strategy = static_cast<QFont::StyleStrategy>(QFont::PreferAntialias | QFont::PreferQuality);
+    appFont.setStyleHint(QFont::SansSerif, strategy);
+    appFont.setStyleStrategy(strategy);
+    appFont.setHintingPreference(QFont::PreferNoHinting);
+    appFont.setKerning(true);
+    app.setFont(appFont);
 
     QString backendPath = QStringLiteral("orderbook_backend.exe");
-    QString symbol = QStringLiteral("BIOUSDT");
+    QString symbol;
     int levels = 500; // 500 per side => ~1000 levels total
 
     // very simple CLI parsing: --symbol XXX --levels N --backend-path PATH
