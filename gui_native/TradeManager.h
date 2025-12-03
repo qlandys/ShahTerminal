@@ -34,12 +34,14 @@ public:
     bool isConnected() const;
 
     void placeLimitOrder(const QString &symbol, double price, double quantity, OrderSide side);
+    void cancelAllOrders(const QString &symbol);
 
     TradePosition positionForSymbol(const QString &symbol) const;
 
 signals:
     void connectionStateChanged(TradeManager::ConnectionState state, const QString &message);
     void orderPlaced(const QString &symbol, OrderSide side, double price, double quantity);
+    void orderCanceled(const QString &symbol, OrderSide side, double price);
     void orderFailed(const QString &symbol, const QString &message);
     void positionChanged(const QString &symbol, const TradePosition &position);
     void logMessage(const QString &message);
@@ -57,7 +59,7 @@ private:
     QByteArray signPayload(const QUrlQuery &query) const;
     QNetworkRequest makePrivateRequest(const QString &path,
                                        const QUrlQuery &query,
-                                       const QByteArray &contentType = QByteArrayLiteral("application/x-www-form-urlencoded")) const;
+                                       const QByteArray &contentType = QByteArray()) const;
     void handleOrderFill(const QString &symbol, OrderSide side, double price, double quantity);
     void emitPositionChanged(const QString &symbol);
     bool ensureCredentials() const;
@@ -67,6 +69,7 @@ private:
     void subscribePrivateChannels();
     void sendListenKeyKeepAlive();
     void resetConnection(const QString &reason);
+    void scheduleReconnect();
     void processPrivateDeal(const QByteArray &body, const QString &symbol);
     void processPrivateOrder(const QByteArray &body, const QString &symbol);
     void processPrivateAccount(const QByteArray &body);
@@ -78,6 +81,7 @@ private:
     const QString m_baseUrl = QStringLiteral("https://api.mexc.com");
     QWebSocket m_privateSocket;
     QTimer m_keepAliveTimer;
+    QTimer m_reconnectTimer;
     QString m_listenKey;
     bool m_closingSocket = false;
     bool m_hasSubscribed = false;

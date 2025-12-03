@@ -430,6 +430,14 @@ TradeManager::TradeManager(QObject *parent)
 
     m_keepAliveTimer.setInterval(25 * 60 * 1000);
     connect(&m_keepAliveTimer, &QTimer::timeout, this, &TradeManager::refreshListenKey);
+    m_reconnectTimer.setSingleShot(true);
+    m_reconnectTimer.setInterval(3000);
+    connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
+        if (m_state == ConnectionState::Disconnected || m_state == ConnectionState::Error) {
+            emit logMessage(QStringLiteral("Reconnecting private WebSocket..."));
+            connectToExchange();
+        }
+    });
 }
 
 void TradeManager::setCredentials(const MexcCredentials &creds)
@@ -518,17 +526,22 @@ void TradeManager::placeLimitOrder(const QString &symbol,
 
     QUrlQuery signedQuery = query;
     signedQuery.addQueryItem(QStringLiteral("signature"), QString::fromLatin1(signPayload(query)));
-    const QByteArray payload = signedQuery.query(QUrl::FullyEncoded).toUtf8();
 
-    QNetworkRequest request = makePrivateRequest(QStringLiteral("/api/v3/order"), QUrlQuery());
-    auto *reply = m_network.post(request, payload);
+    // Per MEXC spot API: send params in URL query, empty body.
+    QNetworkRequest request = makePrivateRequest(QStringLiteral("/api/v3/order"), signedQuery, QByteArray());
+    auto *reply = m_network.post(request, QByteArray());
     connect(reply, &QNetworkReply::finished, this, [this, reply, sym, side, price, quantity]() {
         const QNetworkReply::NetworkError err = reply->error();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray raw = reply->readAll();
         reply->deleteLater();
-        if (err != QNetworkReply::NoError) {
-            emit orderFailed(sym, reply->errorString());
-            emit logMessage(QStringLiteral("Order error: %1").arg(reply->errorString()));
+        if (err != QNetworkReply::NoError || status >= 400) {
+            QString msg = reply->errorString();
+            if (status >= 400) {
+                msg = QStringLiteral("HTTP %1: %2").arg(status).arg(QString::fromUtf8(raw));
+            }
+            emit orderFailed(sym, msg);
+            emit logMessage(QStringLiteral("Order error: %1").arg(msg));
             return;
         }
         const QJsonDocument doc = QJsonDocument::fromJson(raw);
@@ -548,6 +561,44 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                             .arg(side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
                             .arg(quantity, 0, 'f', 4)
                             .arg(price, 0, 'f', 5));
+    });
+}
+
+void TradeManager::cancelAllOrders(const QString &symbol)
+{
+    const QString sym = normalizedSymbol(symbol);
+    if (!ensureCredentials()) {
+        emit orderFailed(sym, QStringLiteral("Missing credentials"));
+        return;
+    }
+    if (!isConnected()) {
+        emit orderFailed(sym, QStringLiteral("Connect to the exchange first"));
+        return;
+    }
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("symbol"), sym);
+    query.addQueryItem(QStringLiteral("recvWindow"), QStringLiteral("5000"));
+    query.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
+    QUrlQuery signedQuery = query;
+    signedQuery.addQueryItem(QStringLiteral("signature"), QString::fromLatin1(signPayload(query)));
+
+    QNetworkRequest req = makePrivateRequest(QStringLiteral("/api/v3/openOrders"), signedQuery);
+    auto *reply = m_network.sendCustomRequest(req, QByteArrayLiteral("DELETE"));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, sym]() {
+        const QNetworkReply::NetworkError err = reply->error();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray raw = reply->readAll();
+        reply->deleteLater();
+        if (err != QNetworkReply::NoError || status >= 400) {
+            QString msg = reply->errorString();
+            if (status >= 400) {
+                msg = QStringLiteral("HTTP %1: %2").arg(status).arg(QString::fromUtf8(raw));
+            }
+            emit orderFailed(sym, msg);
+            emit logMessage(QStringLiteral("Cancel all error: %1").arg(msg));
+            return;
+        }
+        emit logMessage(QStringLiteral("Cancel all sent for %1").arg(sym));
     });
 }
 
@@ -694,6 +745,9 @@ void TradeManager::initializeWebSocket(const QString &listenKey)
 
 void TradeManager::closeWebSocket()
 {
+    if (m_reconnectTimer.isActive()) {
+        m_reconnectTimer.stop();
+    }
     m_keepAliveTimer.stop();
     if (m_privateSocket.state() != QAbstractSocket::UnconnectedState) {
         m_closingSocket = true;
@@ -724,18 +778,11 @@ void TradeManager::sendListenKeyKeepAlive()
     if (m_listenKey.isEmpty()) {
         return;
     }
+    // Keepalive per MEXC spot userDataStream: PUT with listenKey in query, no signature, empty body.
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("listenKey"), m_listenKey);
-    query.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
-    query.addQueryItem(QStringLiteral("recvWindow"), QStringLiteral("5000"));
-    QUrlQuery signedQuery = query;
-    signedQuery.addQueryItem(QStringLiteral("signature"), QString::fromLatin1(signPayload(query)));
-    QJsonObject payloadObj{{QStringLiteral("listenKey"), m_listenKey}};
-    const QByteArray payload = QJsonDocument(payloadObj).toJson(QJsonDocument::Compact);
-    QNetworkRequest request = makePrivateRequest(QStringLiteral("/api/v3/userDataStream"),
-                                                 signedQuery,
-                                                 QByteArrayLiteral("application/json"));
-    auto *reply = m_network.put(request, payload);
+    QNetworkRequest request = makePrivateRequest(QStringLiteral("/api/v3/userDataStream"), query, QByteArray());
+    auto *reply = m_network.put(request, QByteArray());
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const QNetworkReply::NetworkError err = reply->error();
         const QByteArray raw = reply->readAll();
@@ -743,6 +790,7 @@ void TradeManager::sendListenKeyKeepAlive()
         if (err != QNetworkReply::NoError) {
             const QString message = raw.isEmpty() ? reply->errorString() : QString::fromUtf8(raw);
             emit logMessage(QStringLiteral("Keepalive failed: %1").arg(message));
+            scheduleReconnect();
         } else {
             emit logMessage(QStringLiteral("Listen key refreshed."));
         }
@@ -755,6 +803,7 @@ void TradeManager::resetConnection(const QString &reason)
     m_hasSubscribed = false;
     m_listenKey.clear();
     setState(ConnectionState::Error, reason);
+    scheduleReconnect();
 }
 
 void TradeManager::handleSocketConnected()
@@ -764,6 +813,9 @@ void TradeManager::handleSocketConnected()
     sendListenKeyKeepAlive();
     if (!m_keepAliveTimer.isActive()) {
         m_keepAliveTimer.start();
+    }
+    if (m_reconnectTimer.isActive()) {
+        m_reconnectTimer.stop();
     }
     setState(ConnectionState::Connected, QStringLiteral("Connected to private WebSocket"));
 }
@@ -776,8 +828,11 @@ void TradeManager::handleSocketDisconnected()
         emit logMessage(QStringLiteral("Private WebSocket closed."));
         return;
     }
-    emit logMessage(QStringLiteral("Private WebSocket disconnected unexpectedly."));
+    emit logMessage(QStringLiteral("Private WebSocket disconnected unexpectedly. code=%1 reason=%2")
+                        .arg(static_cast<int>(m_privateSocket.closeCode()))
+                        .arg(m_privateSocket.closeReason()));
     setState(ConnectionState::Error, QStringLiteral("WebSocket disconnected"));
+    scheduleReconnect();
 }
 
 void TradeManager::handleSocketError(QAbstractSocket::SocketError)
@@ -789,6 +844,15 @@ void TradeManager::handleSocketError(QAbstractSocket::SocketError)
     if (m_state != ConnectionState::Error) {
         setState(ConnectionState::Error, m_privateSocket.errorString());
     }
+    scheduleReconnect();
+}
+
+void TradeManager::scheduleReconnect()
+{
+    if (m_reconnectTimer.isActive()) {
+        return;
+    }
+    m_reconnectTimer.start();
 }
 
 void TradeManager::handleSocketTextMessage(const QString &message)
@@ -872,13 +936,18 @@ void TradeManager::processPrivateOrder(const QByteArray &body, const QString &sy
     }
 
     const QString identifier = !event.id.isEmpty() ? event.id : event.clientId;
-    emit logMessage(QStringLiteral("Order %1 (%2): status=%3 remain=%4 cumQty=%5 @avg %6")
+        emit logMessage(QStringLiteral("Order %1 (%2): status=%3 remain=%4 cumQty=%5 @avg %6")
                         .arg(identifier)
                         .arg(symbol)
                         .arg(statusText(event.status))
                         .arg(event.remainQuantity, 0, 'f', 8)
                         .arg(event.cumulativeQuantity, 0, 'f', 8)
                         .arg(event.avgPrice, 0, 'f', 8));
+    // Remove from local markers when filled/canceled.
+    if (event.status == 2 || event.status == 4 || event.status == 5 || event.remainQuantity <= 0.0) {
+        const OrderSide side = event.tradeType == 1 ? OrderSide::Buy : OrderSide::Sell;
+        emit orderCanceled(normalizedSymbol(symbol), side, event.price);
+    }
 }
 
 void TradeManager::processPrivateAccount(const QByteArray &body)

@@ -371,6 +371,25 @@ MainWindow::MainWindow(const QString &backendPath,
                     qWarning() << "[audio] player error" << err << errStr;
                 });
     }
+
+    const QString successSoundPath = resolveAssetPath(QStringLiteral("sounds/success.mp3"));
+    if (!successSoundPath.isEmpty()) {
+        m_successOutput = new QAudioOutput(this);
+        m_successOutput->setVolume(0.9);
+        m_successPlayer = new QMediaPlayer(this);
+        m_successPlayer->setAudioOutput(m_successOutput);
+        if (QFile::exists(successSoundPath)) {
+            m_successPlayer->setSource(QUrl::fromLocalFile(successSoundPath));
+        } else {
+            qWarning() << "[audio] success.mp3 not found at" << successSoundPath;
+        }
+        connect(m_successPlayer,
+                &QMediaPlayer::errorOccurred,
+                this,
+                [this](QMediaPlayer::Error err, const QString &errStr) {
+                    qWarning() << "[audio] success player error" << err << errStr;
+                });
+    }
 #endif
 
     if (m_tradeManager) {
@@ -382,6 +401,38 @@ MainWindow::MainWindow(const QString &backendPath,
                 &TradeManager::positionChanged,
                 this,
                 &MainWindow::handlePositionChanged);
+        connect(m_tradeManager,
+                &TradeManager::orderPlaced,
+                this,
+                [this](const QString &sym, OrderSide side, double price, double qty) {
+                    addLocalOrderMarker(sym, side, price, qty, QDateTime::currentMSecsSinceEpoch());
+                    if (m_successPlayer && m_successOutput) {
+                        m_successPlayer->stop();
+                        m_successPlayer->setPosition(0);
+                        m_successPlayer->play();
+                    }
+                    const QString msg = tr("Order placed: %1 %2 @ %3")
+                                            .arg(side == OrderSide::Buy ? QStringLiteral("BUY")
+                                                                        : QStringLiteral("SELL"))
+                                            .arg(qty, 0, 'g', 6)
+                                            .arg(price, 0, 'f', 5);
+                    statusBar()->showMessage(msg, 3000);
+                });
+        connect(m_tradeManager,
+                &TradeManager::orderCanceled,
+                this,
+                [this](const QString &sym, OrderSide side, double price) {
+                    removeLocalOrderMarker(sym, side, price);
+                });
+        connect(m_tradeManager,
+                &TradeManager::orderFailed,
+                this,
+                [this](const QString &sym, const QString &message) {
+                    Q_UNUSED(sym);
+                    const QString msg = tr("Order failed: %1").arg(message);
+                    statusBar()->showMessage(msg, 4000);
+                    addNotification(msg, true);
+                });
     }
 
     createInitialWorkspace();
@@ -1070,6 +1121,16 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     }
 
     bool match = false;
+    if (key == Qt::Key_Space && mods == Qt::NoModifier) {
+        if (m_tradeManager) {
+            DomColumn *col = focusedDomColumn();
+            if (col) {
+                m_tradeManager->cancelAllOrders(col->symbol);
+            }
+        }
+        event->accept();
+        return;
+    }
     if (key == m_centerKey) {
         if (m_centerMods == Qt::NoModifier) {
             match = true;
@@ -1456,6 +1517,8 @@ QWidget *MainWindow::buildMainArea(QWidget *parent)
     m_alertsList->setSelectionMode(QAbstractItemView::NoSelection);
     m_alertsList->setFocusPolicy(Qt::NoFocus);
     m_alertsList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_alertsList->setTextElideMode(Qt::ElideNone);
+    m_alertsList->setWordWrap(true);
     alertsLayout->addWidget(m_alertsList, 1);
 
     connect(markRead, &QPushButton::clicked, this, &MainWindow::markAllNotificationsRead);
@@ -2179,32 +2242,6 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
     }
     const OrderSide side = (button == Qt::LeftButton) ? OrderSide::Buy : OrderSide::Sell;
     m_tradeManager->placeLimitOrder(column->symbol, price, quantity, side);
-    if (column->dom) {
-        DomWidget::LocalOrderMarker marker;
-        marker.price = price;
-        marker.quantity = notional;
-        marker.side = side;
-        marker.createdMs = QDateTime::currentMSecsSinceEpoch();
-        column->localOrders.append(marker);
-        const int maxMarkers = 20;
-        if (column->localOrders.size() > maxMarkers) {
-            column->localOrders.remove(0, column->localOrders.size() - maxMarkers);
-        }
-        column->dom->setLocalOrders(column->localOrders);
-        if (column->prints) {
-            QVector<LocalOrderMarker> printMarkers;
-            printMarkers.reserve(column->localOrders.size());
-            for (const auto &m : column->localOrders) {
-                LocalOrderMarker pm;
-                pm.price = m.price;
-                pm.quantity = m.quantity;
-                pm.buy = (m.side == OrderSide::Buy);
-                pm.createdMs = m.createdMs;
-                printMarkers.push_back(pm);
-            }
-            column->prints->setLocalOrders(printMarkers);
-        }
-    }
     statusBar()->showMessage(
         tr("Submitting %1 %2 @ %3")
             .arg(side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
@@ -2536,6 +2573,14 @@ void MainWindow::refreshAlertsList()
         f.setBold(!n.read);
         item->setFont(f);
         item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        // Allow multiline and prevent eliding: size the row to fit text within current viewport width.
+        const int viewWidth = m_alertsList->viewport() ? m_alertsList->viewport()->width() : 300;
+        const int usableWidth = std::max(80, viewWidth - 12);
+        QFontMetrics fm(f);
+        const QRect br = fm.boundingRect(QRect(0, 0, usableWidth, 0),
+                                         Qt::TextWordWrap,
+                                         text);
+        item->setSizeHint(QSize(usableWidth, br.height() + 6));
         m_alertsList->addItem(item);
     }
 }
@@ -3752,4 +3797,85 @@ void MainWindow::showEvent(QShowEvent *event)
         m_nativeSnapEnabled = true;
     }
 #endif
+}
+void MainWindow::addLocalOrderMarker(const QString &symbol,
+                                     OrderSide side,
+                                     double price,
+                                     double quantity,
+                                     qint64 createdMs)
+{
+    const qint64 ts = createdMs > 0 ? createdMs : QDateTime::currentMSecsSinceEpoch();
+    const QString symUpper = symbol.toUpper();
+    const int maxMarkers = 20;
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            if (col.symbol.toUpper() != symUpper) {
+                continue;
+            }
+            DomWidget::LocalOrderMarker marker;
+            marker.price = price;
+            // Store display quantity in quote currency (notional) for consistency with presets.
+            marker.quantity = std::abs(quantity * price);
+            marker.side = side;
+            marker.createdMs = ts;
+            col.localOrders.append(marker);
+            if (col.localOrders.size() > maxMarkers) {
+                col.localOrders.remove(0, col.localOrders.size() - maxMarkers);
+            }
+            if (col.dom) {
+                col.dom->setLocalOrders(col.localOrders);
+            }
+            if (col.prints) {
+                QVector<LocalOrderMarker> printMarkers;
+                printMarkers.reserve(col.localOrders.size());
+                for (const auto &m : col.localOrders) {
+                    LocalOrderMarker pm;
+                    pm.price = m.price;
+                    pm.quantity = m.quantity;
+                    pm.buy = (m.side == OrderSide::Buy);
+                    pm.createdMs = m.createdMs;
+                    printMarkers.push_back(pm);
+                }
+                col.prints->setLocalOrders(printMarkers);
+            }
+        }
+    }
+}
+
+void MainWindow::removeLocalOrderMarker(const QString &symbol,
+                                        OrderSide side,
+                                        double price)
+{
+    const QString symUpper = symbol.toUpper();
+    const double tol = 1e-8;
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            if (col.symbol.toUpper() != symUpper) continue;
+            auto match = [&](const DomWidget::LocalOrderMarker &m) {
+                if (m.side != side) return false;
+                return std::abs(m.price - price) <= tol;
+            };
+            int before = col.localOrders.size();
+            col.localOrders.erase(std::remove_if(col.localOrders.begin(), col.localOrders.end(), match),
+                                  col.localOrders.end());
+            if (col.localOrders.size() != before) {
+                if (col.dom) {
+                    col.dom->setLocalOrders(col.localOrders);
+                }
+                if (col.prints) {
+                    QVector<LocalOrderMarker> printMarkers;
+                    printMarkers.reserve(col.localOrders.size());
+                    for (const auto &m : col.localOrders) {
+                        LocalOrderMarker pm;
+                        pm.price = m.price;
+                        pm.quantity = m.quantity;
+                        pm.buy = (m.side == OrderSide::Buy);
+                        pm.createdMs = m.createdMs;
+                        printMarkers.push_back(pm);
+                    }
+                    col.prints->setLocalOrders(printMarkers);
+                }
+            }
+        }
+    }
 }

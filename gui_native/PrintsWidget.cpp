@@ -137,8 +137,6 @@ void PrintsWidget::setHoverInfo(int row, double price, const QString &text)
         calibrateRowOffset(row, priceRow);
     }
     resolvedRow = domRowValid ? row : applyRowOffset(priceRow);
-    qDebug() << "[PRINTS hover] domRow" << row << "resolvedRow" << resolvedRow << "priceRow" << priceRow
-             << "price" << price << "offset" << (m_rowOffsetValid ? m_rowOffset : 0);
     QString newText = resolvedRow >= 0 ? text : QString();
     if (m_hoverRow == resolvedRow && m_hoverText == newText && m_hoverPriceValid == priceValid) {
         if (!priceValid || qFuzzyCompare(m_hoverPrice, price)) {
@@ -269,49 +267,72 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
         p.setFont(boldFont);
     }
 
-    // Local order markers hugging правый край (к DOM).
+        // Local order markers hugging правый край (к DOM), агрегируя объём на тик.
     if (!m_orderMarkers.isEmpty()) {
         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
         QFont markerFont = font();
         markerFont.setBold(true);
         QFontMetrics fmMarker(markerFont);
-        const int markerHeight = m_rowHeight - 2;
-        const int tip = std::clamp(m_rowHeight / 2, 8, 14);
-        const int markerWidth = std::max(tip * 2, std::min(36, w / 4));
+
+        struct Agg {
+            double qty = 0.0;
+            qint64 createdMs = 0;
+            bool buy = true;
+            int row = -1;
+        };
+        QHash<quint64, Agg> agg;
         for (const auto &ord : m_orderMarkers) {
             int rowIdx = rowForPrice(ord.price);
             if (rowIdx >= 0) {
                 rowIdx = applyRowOffset(rowIdx);
             }
-        if (rowIdx < 0 || rowIdx >= rows) {
-            continue;
+            if (rowIdx < 0 || rowIdx >= rows) {
+                continue;
+            }
+            const quint64 key = (static_cast<quint64>(rowIdx) << 1) | (ord.buy ? 1ULL : 0ULL);
+            Agg a = agg.value(key, Agg{});
+            a.qty += std::max(0.0, ord.quantity);
+            a.buy = ord.buy;
+            a.row = rowIdx;
+            a.createdMs = (a.createdMs == 0) ? ord.createdMs : std::min(a.createdMs, ord.createdMs);
+            agg.insert(key, a);
         }
-        const int yCenter = rowIdx * m_rowHeight + (m_rowHeight / 2);
-        const int top = yCenter - markerHeight / 2;
-        const int bottom = top + markerHeight;
-        const int right = w - 2;
-        const int left = right - markerWidth;
-        const int midY = (top + bottom) / 2;
 
-        qint64 age = nowMs - ord.createdMs;
-        const qint64 fadeWindow = 20000;
-        double fade = 1.0;
-        if (age > fadeWindow) {
+        for (const auto &a : agg) {
+            const QString text = formatQty(a.qty);
+            const int markerHeight = std::clamp(m_rowHeight - 2, 14, 28);
+            const int tip = std::clamp(markerHeight / 2, 8, 14);
+            const int textWidth = fmMarker.horizontalAdvance(text);
+            const int baseWidth = textWidth + tip + 10;
+            const int markerWidth = std::min(std::max(baseWidth, tip * 2 + 14),
+                                             std::max(60, w - 12));
+
+            const int yCenter = a.row * m_rowHeight + (m_rowHeight / 2);
+            const int top = yCenter - markerHeight / 2;
+            const int bottom = top + markerHeight;
+            const int right = w - 2;
+            const int left = right - markerWidth;
+            const int midY = (top + bottom) / 2;
+
+            qint64 age = nowMs - a.createdMs;
+            const qint64 fadeWindow = 20000;
+            double fade = 1.0;
+            if (age > fadeWindow) {
                 fade = 0.35;
             } else if (age > 0) {
                 fade = 1.0 - (static_cast<double>(age) / fadeWindow) * 0.65;
             }
-            QColor base = ord.buy ? QColor("#4caf50") : QColor("#ef5350");
+            QColor base = a.buy ? QColor("#4caf50") : QColor("#ef5350");
             int alpha = std::clamp(static_cast<int>(180 * fade), 50, 210);
             base.setAlpha(alpha);
-            QColor edge = ord.buy ? QColor("#2f6c37") : QColor("#992626");
+            QColor edge = a.buy ? QColor("#2f6c37") : QColor("#992626");
             edge.setAlpha(std::clamp(alpha + 30, 80, 230));
 
             const int tipOffset = tip;
             QPolygon env;
             env << QPoint(left, top)
                 << QPoint(right - tipOffset, top)
-                << QPoint(right, midY) // острый угол в сторону DOM
+                << QPoint(right, midY)
                 << QPoint(right - tipOffset, bottom)
                 << QPoint(left, bottom);
             p.setBrush(base);
@@ -320,7 +341,6 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
             p.setPen(QPen(edge, 1.4));
             p.drawPolygon(env);
 
-            const QString text = formatQty(ord.quantity);
             p.setFont(markerFont);
             QColor tcol = QColor("#f7f9fb");
             tcol.setAlpha(245);
@@ -330,7 +350,6 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
         }
         p.setFont(font());
     }
-
     if (hasHoverRow && !m_hoverText.isEmpty()) {
         QFont infoFont = font();
         infoFont.setBold(false);
@@ -448,7 +467,6 @@ void PrintsWidget::calibrateRowOffset(int domRow, int priceRow)
         m_rowOffset = diff;
         m_rowOffsetValid = true;
     }
-    qDebug() << "[PRINTS calibrate]" << "domRow" << domRow << "priceRow" << priceRow << "offset" << m_rowOffset;
 }
 
 QSize PrintsWidget::sizeHint() const

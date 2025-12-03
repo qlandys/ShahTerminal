@@ -165,6 +165,14 @@ private:
                               Qt::KeyboardModifiers eventMods,
                               int key,
                               Qt::KeyboardModifiers mods);
+    void addLocalOrderMarker(const QString &symbol,
+                             OrderSide side,
+                             double price,
+                             double quantity,
+                             qint64 createdMs);
+    void removeLocalOrderMarker(const QString &symbol,
+                                OrderSide side,
+                                double price);
     void addNotification(const QString &text, bool unread = true);
     void updateAlertsBadge();
     void refreshAlertsList();
@@ -202,6 +210,8 @@ private:
     QListWidget *m_alertsList = nullptr;
     class QMediaPlayer *m_notificationPlayer = nullptr;
     class QAudioOutput *m_notificationOutput = nullptr;
+    class QMediaPlayer *m_successPlayer = nullptr;
+    class QAudioOutput *m_successOutput = nullptr;
 
     QWidget *m_orderPanel;
     QLabel *m_orderSymbolLabel;
