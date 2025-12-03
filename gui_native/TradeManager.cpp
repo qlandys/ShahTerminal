@@ -430,6 +430,12 @@ TradeManager::TradeManager(QObject *parent)
 
     m_keepAliveTimer.setInterval(25 * 60 * 1000);
     connect(&m_keepAliveTimer, &QTimer::timeout, this, &TradeManager::refreshListenKey);
+    m_wsPingTimer.setInterval(45 * 1000); // send websocket pings every 45s
+    connect(&m_wsPingTimer, &QTimer::timeout, this, [this]() {
+        if (m_privateSocket.isValid()) {
+            m_privateSocket.ping();
+        }
+    });
     m_reconnectTimer.setSingleShot(true);
     m_reconnectTimer.setInterval(3000);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
@@ -749,6 +755,7 @@ void TradeManager::closeWebSocket()
         m_reconnectTimer.stop();
     }
     m_keepAliveTimer.stop();
+    m_wsPingTimer.stop();
     if (m_privateSocket.state() != QAbstractSocket::UnconnectedState) {
         m_closingSocket = true;
         m_privateSocket.close();
@@ -814,6 +821,9 @@ void TradeManager::handleSocketConnected()
     if (!m_keepAliveTimer.isActive()) {
         m_keepAliveTimer.start();
     }
+    if (!m_wsPingTimer.isActive()) {
+        m_wsPingTimer.start();
+    }
     if (m_reconnectTimer.isActive()) {
         m_reconnectTimer.stop();
     }
@@ -823,6 +833,7 @@ void TradeManager::handleSocketConnected()
 void TradeManager::handleSocketDisconnected()
 {
     m_keepAliveTimer.stop();
+    m_wsPingTimer.stop();
     if (m_closingSocket) {
         m_closingSocket = false;
         emit logMessage(QStringLiteral("Private WebSocket closed."));

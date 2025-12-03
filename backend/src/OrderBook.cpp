@@ -44,10 +44,64 @@ namespace dom
     }
 
     void OrderBook::applyDelta(const std::vector<std::pair<Tick, double>>& bids,
-                               const std::vector<std::pair<Tick, double>>& asks)
+                               const std::vector<std::pair<Tick, double>>& asks,
+                               std::size_t ladderLevelsHint)
     {
         applySide(bids_, bids);
         applySide(asks_, asks);
+
+        // Чтобы не держать бесконечный хвост старых уровней, которые уже ушли
+        // далеко от текущего мида, чистим карту за окном вокруг середины.
+        if (tickSize_ <= 0.0 || (bids_.empty() && asks_.empty())) {
+            return;
+        }
+
+        Tick midTick = 0;
+        bool hasMid = false;
+        if (!bids_.empty() && !asks_.empty()) {
+            midTick = (bids_.rbegin()->first + asks_.begin()->first) / 2;
+            hasMid = true;
+        } else if (!bids_.empty()) {
+            midTick = bids_.rbegin()->first;
+            hasMid = true;
+        } else if (!asks_.empty()) {
+            midTick = asks_.begin()->first;
+            hasMid = true;
+        }
+
+        if (!hasMid) {
+            return;
+        }
+
+        const Tick padding = static_cast<Tick>(std::max<std::size_t>(ladderLevelsHint, 200));
+        const Tick guard = padding * 3; // держим запас, но не бесконечный
+
+        Tick maxTick = (midTick > std::numeric_limits<Tick>::max() - guard)
+                           ? std::numeric_limits<Tick>::max()
+                           : midTick + guard;
+        Tick minTick = (midTick < std::numeric_limits<Tick>::min() + guard)
+                           ? std::numeric_limits<Tick>::min()
+                           : midTick - guard;
+
+        pruneOutsideWindow(bids_, minTick, maxTick);
+        pruneOutsideWindow(asks_, minTick, maxTick);
+
+        // Защитный инвариант: bestBid < bestAsk. Если данные пришли кривые или
+        // из-за округления стороны пересеклись, вычищаем перекрытие.
+        if (!bids_.empty() && !asks_.empty() && bids_.rbegin()->first >= asks_.begin()->first) {
+            const Tick askTick = asks_.begin()->first;
+            const Tick bidTick = bids_.rbegin()->first;
+            // Удаляем бидовые уровни, которые не могут существовать выше/на ask.
+            auto badBidIt = bids_.lower_bound(askTick);
+            while (badBidIt != bids_.end()) {
+                badBidIt = bids_.erase(badBidIt);
+            }
+            // И удаляем аски, которые не могут быть ниже/на bid.
+            auto badAskEnd = asks_.upper_bound(bidTick);
+            asks_.erase(asks_.begin(), badAskEnd);
+            // Сдвигаем центр при сильной чистке.
+            hasCenter_ = false;
+        }
     }
 
     double OrderBook::bestBid() const
@@ -290,6 +344,24 @@ namespace dom
             {
                 side[tick] = qty;
             }
+        }
+    }
+
+    void OrderBook::pruneOutsideWindow(BookSide& side, Tick minTick, Tick maxTick)
+    {
+        if (side.empty()) {
+            return;
+        }
+        auto it = side.begin();
+        while (it != side.end() && it->first < minTick) {
+            it = side.erase(it);
+        }
+        if (side.empty()) {
+            return;
+        }
+        it = side.upper_bound(maxTick);
+        while (it != side.end()) {
+            it = side.erase(it);
         }
     }
 } // namespace dom

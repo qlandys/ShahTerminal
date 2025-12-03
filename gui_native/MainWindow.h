@@ -10,6 +10,7 @@
 #include <QVector>
 #include <QStringList>
 #include <QRect>
+#include <QNetworkAccessManager>
 #include <array>
 
 class QLabel;
@@ -95,6 +96,7 @@ private:
         QScrollArea *scrollArea = nullptr;
         QScrollBar *scrollBar = nullptr;
         QWidget *floatingWindow = nullptr;
+        QLabel *tickerLabel = nullptr;
         bool isFloating = false;
         int lastSplitterIndex = -1;
         QList<int> lastSplitterSizes;
@@ -107,6 +109,8 @@ private:
         int editingNotionalIndex = -1;
         std::array<double, 5> notionalValues{};
         QVector<DomWidget::LocalOrderMarker> localOrders;
+        int tickCompression = 1;
+        QToolButton *compressionButton = nullptr;
     };
 
     struct WorkspaceTab {
@@ -173,6 +177,8 @@ private:
     void removeLocalOrderMarker(const QString &symbol,
                                 OrderSide side,
                                 double price);
+    void fetchSymbolLibrary();
+    void mergeSymbolLibrary(const QStringList &symbols);
     void addNotification(const QString &text, bool unread = true);
     void updateAlertsBadge();
     void refreshAlertsList();
@@ -184,10 +190,14 @@ private:
     QIcon loadIcon(const QString &name) const;
     QIcon loadIconTinted(const QString &name, const QColor &color, const QSize &size) const;
     QString resolveAssetPath(const QString &relative) const;
+    void retargetDomColumn(DomColumn &col, const QString &symbol);
 
     QString m_backendPath;
     QStringList m_symbols;
+    QStringList m_symbolLibrary;
     int m_levels;
+    QNetworkAccessManager m_symbolFetcher;
+    bool m_symbolRequestInFlight = false;
 
     QTabBar *m_workspaceTabs;
     QFrame *m_tabUnderline;

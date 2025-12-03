@@ -82,6 +82,7 @@ private:
     QWebSocket m_privateSocket;
     QTimer m_keepAliveTimer;
     QTimer m_reconnectTimer;
+    QTimer m_wsPingTimer;
     QString m_listenKey;
     bool m_closingSocket = false;
     bool m_hasSubscribed = false;

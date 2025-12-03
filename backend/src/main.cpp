@@ -873,48 +873,55 @@ namespace
             if (type == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE ||
                 type == WINHTTP_WEB_SOCKET_BINARY_FRAGMENT_BUFFER_TYPE)
             {
-                const double tickSize = book.tickSize();
-                if (tickSize <= 0.0)
+                try
                 {
-                    continue;
-                }
-
-                std::string channelName;
-                std::vector<std::pair<dom::OrderBook::Tick, double>> asks;
-                std::vector<std::pair<dom::OrderBook::Tick, double>> bids;
-                std::vector<PublicAggreDeal> deals;
-
-                // Try trades first
-                if (parseDealsFromWrapper(buffer.data(), received, channelName, deals))
-                {
-                    for (const auto& d : deals)
+                    const double tickSize = book.tickSize();
+                    if (tickSize <= 0.0)
                     {
-                        json t;
-                        t["type"] = "trade";
-                        t["symbol"] = config.symbol;
-                        t["price"] = d.price;
-                        t["qty"] = d.quantity;
-                        t["side"] = d.buy ? "buy" : "sell";
-                        t["timestamp"] = d.time;
-                        std::cout << t.dump() << std::endl;
+                        continue;
                     }
-                    continue;
-                }
 
-                // Depth updates
-                if (parsePushWrapper(buffer.data(), received, channelName, tickSize, asks, bids))
-                {
-                    book.applyDelta(bids, asks);
+                    std::string channelName;
+                    std::vector<std::pair<dom::OrderBook::Tick, double>> asks;
+                    std::vector<std::pair<dom::OrderBook::Tick, double>> bids;
+                    std::vector<PublicAggreDeal> deals;
 
-                    const auto now = std::chrono::steady_clock::now();
-                    if (now - lastEmit >= config.throttle)
+                    // Try trades first
+                    if (parseDealsFromWrapper(buffer.data(), received, channelName, deals))
                     {
-                        lastEmit = now;
-                        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                               std::chrono::system_clock::now().time_since_epoch())
-                                               .count();
-                        emitLadder(config, book, book.bestBid(), book.bestAsk(), nowMs);
+                        for (const auto& d : deals)
+                        {
+                            json t;
+                            t["type"] = "trade";
+                            t["symbol"] = config.symbol;
+                            t["price"] = d.price;
+                            t["qty"] = d.quantity;
+                            t["side"] = d.buy ? "buy" : "sell";
+                            t["timestamp"] = d.time;
+                            std::cout << t.dump() << std::endl;
+                        }
+                        continue;
                     }
+
+                    // Depth updates
+                    if (parsePushWrapper(buffer.data(), received, channelName, tickSize, asks, bids))
+                    {
+                        book.applyDelta(bids, asks, config.ladderLevelsPerSide);
+
+                        const auto now = std::chrono::steady_clock::now();
+                        if (now - lastEmit >= config.throttle)
+                        {
+                            lastEmit = now;
+                            const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                   std::chrono::system_clock::now().time_since_epoch())
+                                                   .count();
+                            emitLadder(config, book, book.bestBid(), book.bestAsk(), nowMs);
+                        }
+                    }
+                }
+                catch (const std::exception& ex)
+                {
+                    std::cerr << "[backend] decode/apply error: " << ex.what() << std::endl;
                 }
             }
         }

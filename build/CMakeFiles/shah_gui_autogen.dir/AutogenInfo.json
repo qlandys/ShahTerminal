@@ -442,6 +442,12 @@
 			null
 		],
 		[
+			"C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SymbolPickerDialog.h",
+			"MU",
+			"S22ENIQL7A/moc_SymbolPickerDialog.cpp",
+			null
+		],
+		[
 			"C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeManager.h",
 			"MU",
 			"S22ENIQL7A/moc_TradeManager.cpp",
@@ -669,6 +675,11 @@
 		],
 		[
 			"C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SettingsWindow.cpp",
+			"MU",
+			null
+		],
+		[
+			"C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/SymbolPickerDialog.cpp",
 			"MU",
 			null
 		],

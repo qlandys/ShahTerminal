@@ -7,4 +7,5 @@
 #include <S22ENIQL7A/moc_PluginsWindow.cpp>
 #include <S22ENIQL7A/moc_PrintsWidget.cpp>
 #include <S22ENIQL7A/moc_SettingsWindow.cpp>
+#include <S22ENIQL7A/moc_SymbolPickerDialog.cpp>
 #include <S22ENIQL7A/moc_TradeManager.cpp>

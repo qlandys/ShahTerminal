@@ -32,7 +32,8 @@ namespace dom
 
         // Incremental updates from aggre.depth stream, prices in ticks.
         void applyDelta(const std::vector<std::pair<Tick, double>>& bids,
-                        const std::vector<std::pair<Tick, double>>& asks);
+                        const std::vector<std::pair<Tick, double>>& asks,
+                        std::size_t ladderLevelsHint);
 
         [[nodiscard]] double bestBid() const;
         [[nodiscard]] double bestAsk() const;
@@ -51,6 +52,8 @@ namespace dom
         mutable Tick centerTick_{0};
         mutable bool hasCenter_{false};
 
-        static void applySide(BookSide& side, const std::vector<std::pair<Tick, double>>& updates);
+        static void applySide(BookSide& side,
+                              const std::vector<std::pair<Tick, double>>& updates);
+        static void pruneOutsideWindow(BookSide& side, Tick minTick, Tick maxTick);
     };
 } // namespace dom

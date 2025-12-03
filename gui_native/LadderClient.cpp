@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 
 using json = nlohmann::json;
 
@@ -51,6 +52,15 @@ void LadderClient::restart(const QString &symbol, int levels)
     m_initialCenterSent = false;
     m_lastTickSize = 0.0;
     m_printBuffer.clear();
+    if (m_prints) {
+        QVector<PrintItem> emptyPrints;
+        m_prints->setPrints(emptyPrints);
+        QVector<double> emptyPrices;
+        const int rowH = m_dom ? m_dom->rowHeight() : 20;
+        m_prints->setLadderPrices(emptyPrices, rowH, 0.0);
+        QVector<LocalOrderMarker> emptyOrders;
+        m_prints->setLocalOrders(emptyOrders);
+    }
 
     if (m_process.state() != QProcess::NotRunning) {
         m_process.kill();
@@ -80,6 +90,11 @@ void LadderClient::stop()
 bool LadderClient::isRunning() const
 {
     return m_process.state() != QProcess::NotRunning;
+}
+
+void LadderClient::setCompression(int factor)
+{
+    m_tickCompression = std::max(1, factor);
 }
 
 void LadderClient::handleReadyRead()
@@ -204,6 +219,44 @@ void LadderClient::processLine(const QByteArray &line)
         std::sort(snap.levels.begin(), snap.levels.end(), [](const DomLevel &a, const DomLevel &b) {
             return a.price > b.price;
         });
+
+        // Compression: агрегируем уровни в корзины по m_tickCompression тиков.
+        if (m_tickCompression > 1 && snap.tickSize > 0.0) {
+            std::map<std::int64_t, DomLevel, std::greater<std::int64_t>> buckets;
+            for (const auto &lvl : snap.levels) {
+                const auto tick = static_cast<std::int64_t>(std::llround(lvl.price / snap.tickSize));
+                const std::int64_t bucketTick = (tick / m_tickCompression) * m_tickCompression;
+                DomLevel &dst = buckets[bucketTick];
+                dst.price = static_cast<double>(bucketTick) * snap.tickSize;
+                dst.bidQty += lvl.bidQty;
+                dst.askQty += lvl.askQty;
+            }
+            snap.levels.clear();
+            snap.levels.reserve(static_cast<int>(buckets.size()));
+            for (const auto &kv : buckets) {
+                snap.levels.push_back(kv.second);
+            }
+
+            // Пересчитать bestBid/bestAsk на ближайшее значение из агрегированных корзин,
+            // чтобы подсветка соответствовала фактическому биду/аску внутри бинов.
+            auto snapToBucket = [](double ref, const QVector<DomLevel> &levels) -> double {
+                if (ref <= 0.0 || levels.isEmpty()) {
+                    return ref;
+                }
+                double best = levels.first().price;
+                double bestDist = std::abs(levels.first().price - ref);
+                for (const auto &lvl : levels) {
+                    const double d = std::abs(lvl.price - ref);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        best = lvl.price;
+                    }
+                }
+                return best;
+            };
+            snap.bestBid = snapToBucket(snap.bestBid, snap.levels);
+            snap.bestAsk = snapToBucket(snap.bestAsk, snap.levels);
+        }
     }
 
     // Ping calculation from backend timestamp, if available.
@@ -242,7 +295,7 @@ void LadderClient::processLine(const QByteArray &line)
         }
         const int rowH = m_dom ? m_dom->rowHeight() : 20;
         const double tickForPrints = snap.tickSize > 0.0 ? snap.tickSize : m_lastTickSize;
-        m_prints->setLadderPrices(m_lastPrices, rowH, tickForPrints);
+        m_prints->setLadderPrices(m_lastPrices, rowH, tickForPrints * m_tickCompression);
     }
 }
 

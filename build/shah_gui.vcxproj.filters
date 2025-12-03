@@ -34,6 +34,9 @@
     <ClCompile Include="C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\DomWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\SymbolPickerDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\Babos\ShahProjects\ShahTerminal\build\shah_gui_autogen\mocs_compilation_Release.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -73,6 +76,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\DomWidget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Babos\ShahProjects\ShahTerminal\gui_native\SymbolPickerDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

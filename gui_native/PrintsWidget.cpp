@@ -74,6 +74,7 @@ void PrintsWidget::setPrints(const QVector<PrintItem> &items)
 
 void PrintsWidget::setLadderPrices(const QVector<double> &prices, int rowHeight, double tickSize)
 {
+    const bool resetMapping = m_prices.isEmpty() || prices.isEmpty();
     m_prices = prices;
     m_priceToRow.clear();
     m_priceToRow.reserve(m_prices.size());
@@ -97,6 +98,10 @@ void PrintsWidget::setLadderPrices(const QVector<double> &prices, int rowHeight,
     m_rowHeight = std::max(10, std::min(rowHeight, 40));
 
     const int totalHeight = m_prices.size() * m_rowHeight + kDomInfoAreaHeight;
+    if (resetMapping) {
+        m_rowOffset = 0;
+        m_rowOffsetValid = false;
+    }
     if (m_hoverRow >= m_prices.size()) {
         m_hoverRow = -1;
         m_hoverText.clear();
@@ -463,6 +468,10 @@ void PrintsWidget::calibrateRowOffset(int domRow, int priceRow)
         return;
     }
     const int diff = domRow - priceRow;
+    const int maxOffset = std::max<int>(4, static_cast<int>(m_prices.size()) / 5);
+    if (std::abs(diff) > maxOffset) {
+        return;
+    }
     if (!m_rowOffsetValid || diff != m_rowOffset) {
         m_rowOffset = diff;
         m_rowOffsetValid = true;

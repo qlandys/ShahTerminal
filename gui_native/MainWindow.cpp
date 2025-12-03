@@ -7,6 +7,7 @@
 #include "PrintsWidget.h"
 #include "SettingsWindow.h"
 #include "TradeManager.h"
+#include "SymbolPickerDialog.h"
 #include <QApplication>
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -62,6 +63,11 @@
 #include <QStandardPaths>
 #include <QSettings>
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <cmath>
 #include <algorithm>
 #include <QListWidget>
@@ -320,6 +326,19 @@ MainWindow::MainWindow(const QString &backendPath,
     if (m_volumeRules.isEmpty()) {
         m_volumeRules = defaultVolumeHighlightRules();
     }
+
+    m_symbolLibrary = m_symbols;
+    const QStringList defaults = {
+        QStringLiteral("BTCUSDT"), QStringLiteral("ETHUSDT"), QStringLiteral("SOLUSDT"),
+        QStringLiteral("BNBUSDT"), QStringLiteral("XRPUSDT"), QStringLiteral("LTCUSDT"),
+        QStringLiteral("BIOUSDT")
+    };
+    for (const QString &sym : defaults) {
+        if (!m_symbolLibrary.contains(sym, Qt::CaseInsensitive)) {
+            m_symbolLibrary.push_back(sym);
+        }
+    }
+    fetchSymbolLibrary();
 
     // ?????????? ???????? ?????? (Shift ? ?.?.).
     qApp->installEventFilter(this);
@@ -1773,8 +1792,12 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     hLayout->setSpacing(6);
 
     auto *tickerLabel = new QLabel(result.symbol, header);
-    tickerLabel->setStyleSheet("color:#dcdcdc;");
+    tickerLabel->setStyleSheet("color:#dcdcdc; padding:2px 4px;");
+    tickerLabel->setCursor(Qt::PointingHandCursor);
+    tickerLabel->setMouseTracking(true);
+    tickerLabel->installEventFilter(this);
     hLayout->addWidget(tickerLabel);
+    result.tickerLabel = tickerLabel;
 
     auto *levelsSpin = new QSpinBox(header);
     levelsSpin->setRange(50, 4000);
@@ -1784,6 +1807,14 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     levelsSpin->setAlignment(Qt::AlignRight);
     levelsSpin->setToolTip(tr("Levels per side"));
     hLayout->addWidget(levelsSpin);
+
+    auto *compressionButton = new QToolButton(header);
+    compressionButton->setAutoRaise(true);
+    compressionButton->setText(QStringLiteral("1x"));
+    compressionButton->setCursor(Qt::PointingHandCursor);
+    compressionButton->setFixedSize(32, 20);
+    compressionButton->setToolTip(tr("Ticks per row (compression)"));
+    hLayout->addWidget(compressionButton);
 
     hLayout->addStretch(1);
     auto *zoomOutButton = new QToolButton(header);
@@ -1976,6 +2007,7 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
 
     const QString symbolUpper = result.symbol;
     auto *client = new LadderClient(m_backendPath, symbolUpper, m_levels, dom, column, prints);
+    client->setCompression(result.tickCompression);
 
     connect(client,
             &LadderClient::statusMessage,
@@ -2009,11 +2041,41 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
                     client->restart(symbolUpper, value);
                 }
             });
+    connect(compressionButton, &QToolButton::clicked, this, [this, column, compressionButton]() {
+        WorkspaceTab *tab = nullptr;
+        DomColumn *col = nullptr;
+        int idx = -1;
+        if (!locateColumn(column, tab, col, idx) || !col) {
+            return;
+        }
+        bool ok = false;
+        const int current = std::max(1, col->tickCompression);
+        const int factor = QInputDialog::getInt(this,
+                                                tr("Compression"),
+                                                tr("Ticks per row:"),
+                                                current,
+                                                1,
+                                                10000,
+                                                1,
+                                                &ok);
+        if (!ok) {
+            return;
+        }
+        const int clamped = std::clamp(factor, 1, 10000);
+        col->tickCompression = clamped;
+        compressionButton->setText(QStringLiteral("%1x").arg(clamped));
+        if (col->client) {
+            col->client->setCompression(clamped);
+        }
+    });
     connect(floatButton, &QToolButton::clicked, this, [this, column]() {
         toggleDomColumnFloating(column);
     });
     connect(closeButton, &QToolButton::clicked, this, [this, column]() {
         removeDomColumn(column);
+    });
+    connect(tickerLabel, &QLabel::linkActivated, this, [this, &result](const QString &) {
+        retargetDomColumn(result, QString());
     });
     header->installEventFilter(this);
 
@@ -2024,6 +2086,8 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     result.scrollBar = domScrollBar;
     result.client = client;
     result.levelsSpin = levelsSpin;
+    result.tickCompression = 1;
+    result.compressionButton = compressionButton;
     result.notionalOverlay = notionalOverlay;
     result.notionalGroup = notionalGroup;
     result.localOrders.clear();
@@ -2135,14 +2199,19 @@ void MainWindow::handleNewLadderRequested()
 
 
     const QString defaultSymbol = !m_symbols.isEmpty() ? m_symbols.first() : QStringLiteral("BIOUSDT");
-    bool ok = false;
-    const QString symbol =
-        QInputDialog::getText(this, tr("Add ladder"), tr("Symbol:"), QLineEdit::Normal, defaultSymbol, &ok)
-            .trimmed()
-            .toUpper();
-
-    if (!ok || symbol.isEmpty()) {
+    SymbolPickerDialog picker(this);
+    picker.setWindowTitle(tr("Add ladder"));
+    picker.setSymbols(m_symbolLibrary);
+    picker.setCurrentSymbol(defaultSymbol);
+    if (picker.exec() != QDialog::Accepted) {
         return;
+    }
+    const QString symbol = picker.selectedSymbol().trimmed().toUpper();
+    if (symbol.isEmpty()) {
+        return;
+    }
+    if (!m_symbolLibrary.contains(symbol, Qt::CaseInsensitive)) {
+        m_symbolLibrary.push_back(symbol);
     }
 
     setLastAddAction(AddAction::LadderColumn);
@@ -2259,6 +2328,55 @@ void MainWindow::handlePositionChanged(const QString &symbol, const TradePositio
                 col.dom->setTradePosition(position);
             }
         }
+    }
+}
+
+void MainWindow::retargetDomColumn(DomColumn &col, const QString &symbol)
+{
+    QString sym = symbol;
+    if (sym.isEmpty()) {
+        // Ask user to pick via simple dialog with filtering.
+        const QString current = col.symbol;
+        SymbolPickerDialog picker(this);
+        picker.setWindowTitle(tr("Select symbol"));
+        picker.setSymbols(m_symbolLibrary);
+        picker.setCurrentSymbol(current);
+        if (picker.exec() != QDialog::Accepted) {
+            return;
+        }
+        sym = picker.selectedSymbol().trimmed().toUpper();
+        if (sym.isEmpty()) {
+            return;
+        }
+    } else {
+        sym = sym.trimmed().toUpper();
+    }
+    if (sym.isEmpty() || sym == col.symbol) {
+        return;
+    }
+
+    // Remember in library.
+    if (!m_symbolLibrary.contains(sym, Qt::CaseInsensitive)) {
+        m_symbolLibrary.push_back(sym);
+    }
+
+    col.symbol = sym;
+    if (col.tickerLabel) {
+        col.tickerLabel->setText(sym);
+    }
+    if (col.localOrders.size() > 0) {
+        col.localOrders.clear();
+        if (col.dom) {
+            col.dom->setLocalOrders(col.localOrders);
+        }
+        if (col.prints) {
+            QVector<LocalOrderMarker> empty;
+            col.prints->setLocalOrders(empty);
+        }
+    }
+    const int levels = col.levelsSpin ? col.levelsSpin->value() : m_levels;
+    if (col.client) {
+        col.client->restart(sym, levels);
     }
 }
 
@@ -3326,6 +3444,31 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         obj == m_topBar || obj == m_workspaceTabs || obj == m_addTabButton
         || obj == m_timeLabel;
 
+    // Hover/click on ticker label to open symbol picker.
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            if (obj == col.tickerLabel && event->type() == QEvent::Enter) {
+                if (col.tickerLabel) {
+                    col.tickerLabel->setStyleSheet("color:#ffffff; padding:2px 4px; background:#2d2d2d;");
+                }
+                return true;
+            }
+            if (obj == col.tickerLabel && event->type() == QEvent::Leave) {
+                if (col.tickerLabel) {
+                    col.tickerLabel->setStyleSheet("color:#dcdcdc; padding:2px 4px;");
+                }
+                return true;
+            }
+            if (obj == col.tickerLabel && event->type() == QEvent::MouseButtonPress) {
+                auto *me = static_cast<QMouseEvent *>(event);
+                if (me->button() == Qt::LeftButton) {
+                    retargetDomColumn(col, QString());
+                    return true;
+                }
+            }
+        }
+    }
+
     if (!isTopBarObject) {
         return QMainWindow::eventFilter(obj, event);
     }
@@ -3878,4 +4021,76 @@ void MainWindow::removeLocalOrderMarker(const QString &symbol,
             }
         }
     }
+}
+
+void MainWindow::fetchSymbolLibrary()
+{
+    if (m_symbolRequestInFlight) {
+        return;
+    }
+    const QUrl url(QStringLiteral("https://api.mexc.com/api/v3/exchangeInfo"));
+    QNetworkRequest req(url);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    m_symbolRequestInFlight = true;
+    auto *reply = m_symbolFetcher.get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        m_symbolRequestInFlight = false;
+        const auto err = reply->error();
+        const QByteArray raw = reply->readAll();
+        reply->deleteLater();
+        if (err != QNetworkReply::NoError) {
+            qWarning() << "[symbols] fetch failed:" << err;
+            statusBar()->showMessage(tr("Failed to load symbols"), 2500);
+            return;
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (!doc.isObject()) {
+            qWarning() << "[symbols] invalid payload";
+            return;
+        }
+        const QJsonArray arr = doc.object().value(QStringLiteral("symbols")).toArray();
+        QStringList fetched;
+        fetched.reserve(arr.size());
+        for (const auto &v : arr) {
+            const QJsonObject obj = v.toObject();
+            QString sym = obj.value(QStringLiteral("symbol")).toString().trimmed().toUpper();
+            if (sym.isEmpty()) {
+                continue;
+            }
+            const QString status = obj.value(QStringLiteral("status")).toString();
+            const bool spotAllowed = obj.value(QStringLiteral("isSpotTradingAllowed")).toBool(true);
+            const bool tradable = status.isEmpty()
+                                  || status.compare(QStringLiteral("TRADING"), Qt::CaseInsensitive) == 0
+                                  || status.compare(QStringLiteral("ENABLED"), Qt::CaseInsensitive) == 0;
+            if (!tradable || !spotAllowed) {
+                continue;
+            }
+            fetched.push_back(sym);
+        }
+        if (!fetched.isEmpty()) {
+            mergeSymbolLibrary(fetched);
+            statusBar()->showMessage(tr("Loaded %1 symbols").arg(fetched.size()), 2000);
+        }
+    });
+}
+
+void MainWindow::mergeSymbolLibrary(const QStringList &symbols)
+{
+    QStringList merged;
+    merged.reserve(m_symbolLibrary.size() + symbols.size());
+    auto addList = [&merged](const QStringList &src) {
+        for (const QString &sym : src) {
+            const QString s = sym.trimmed().toUpper();
+            if (s.isEmpty() || merged.contains(s, Qt::CaseInsensitive)) {
+                continue;
+            }
+            merged.push_back(s);
+        }
+    };
+    addList(m_symbolLibrary);
+    addList(symbols);
+    std::sort(merged.begin(), merged.end(), [](const QString &a, const QString &b) {
+        return a.toUpper() < b.toUpper();
+    });
+    m_symbolLibrary = merged;
 }

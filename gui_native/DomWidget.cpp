@@ -15,30 +15,44 @@
 #include <utility>
 
 namespace {
-QString formatPriceForDisplay(double price, int precision)
+int precisionForTick(double tick)
 {
-    const QString base = QString::number(price, 'f', precision);
+    if (tick <= 0.0) {
+        return 5;
+    }
+    // Примерно количество знаков после запятой из шага цены, с жёстким ограничением.
+    const double logv = -std::log10(std::max(tick, 1e-10));
+    const int p = static_cast<int>(std::ceil(logv - 1e-6));
+    return std::clamp(p, 0, 10);
+}
+
+QString formatPriceForDisplay(double price, double tickSize)
+{
+    const int precision = precisionForTick(tickSize);
+    QString base = QString::number(price, 'f', precision);
     const int dot = base.indexOf('.');
     if (dot < 0) {
         return base;
     }
 
-    const QString intPart = base.left(dot);
-    const QString frac = base.mid(dot + 1);
+    QString intPart = base.left(dot);
+    QString frac = base.mid(dot + 1);
+
     if (intPart == QLatin1String("0")) {
         int zeroCount = 0;
         while (zeroCount < frac.size() && frac.at(zeroCount) == QLatin1Char('0')) {
             ++zeroCount;
         }
+        QString remainder = frac.mid(zeroCount);
+        if (remainder.isEmpty()) {
+            remainder = QStringLiteral("0");
+        }
         if (zeroCount > 0) {
-            QString remainder = frac.mid(zeroCount);
-            if (remainder.isEmpty()) {
-                remainder = QStringLiteral("0");
-            }
             return QStringLiteral("(%1)%2").arg(zeroCount).arg(remainder);
         }
     }
-    return base;
+
+    return intPart + QLatin1Char('.') + frac;
 }
 
 QString formatQty(double v)
@@ -294,13 +308,21 @@ void DomWidget::paintEvent(QPaintEvent *event)
     const double bestPriceTolerance = priceTolerance(m_snapshot.tickSize);
     QFontMetrics fm(font());
 
-    // Reserve fixed-width price column with a small trailing margin.
-    const int priceColWidth = std::max(48, fm.horizontalAdvance(QStringLiteral("(3)00000")) + 4);
-    const int priceRight = w - 1;
-    const int priceLeft = std::max(0, priceRight - priceColWidth);
-
     const int firstRow = std::max(0, static_cast<int>(clipRect.top() / rowHeight));
     const int lastRow = std::min(rows - 1, static_cast<int>(clipRect.bottom() / rowHeight));
+
+    // Подбираем ширину колонки по реально отображаемым ценам.
+    int maxPriceWidth = 0;
+    for (int i = firstRow; i <= lastRow; ++i) {
+        const QString text = formatPriceForDisplay(m_snapshot.levels[i].price, m_snapshot.tickSize);
+        maxPriceWidth = std::max(maxPriceWidth, fm.horizontalAdvance(text));
+    }
+    // Резерв под сжатый формат малых цен "(3)12345".
+    const QString tinySample = QStringLiteral("(5)12345");
+    maxPriceWidth = std::max(maxPriceWidth, fm.horizontalAdvance(tinySample));
+    const int priceColWidth = std::clamp(maxPriceWidth + 8, 52, std::max(60, w / 3));
+    const int priceRight = w - 1;
+    const int priceLeft = std::max(0, priceRight - priceColWidth);
 
     // Grid vertical lines for price column borders.
     p.setPen(m_style.grid);
@@ -406,7 +428,7 @@ void DomWidget::paintEvent(QPaintEvent *event)
         }
 
         // Price text with leading-zero compaction.
-        const QString text = formatPriceForDisplay(lvl.price, 5);
+        const QString text = formatPriceForDisplay(lvl.price, m_snapshot.tickSize);
         p.setPen(m_style.text);
         int textWidth = fm.horizontalAdvance(text);
         int textX = priceRight - textWidth - 2;

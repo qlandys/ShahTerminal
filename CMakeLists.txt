@@ -54,6 +54,8 @@ if (Qt6_FOUND)
         gui_native/PrintsWidget.h
         gui_native/DomWidget.cpp
         gui_native/DomWidget.h
+        gui_native/SymbolPickerDialog.cpp
+        gui_native/SymbolPickerDialog.h
     )
     target_link_libraries(shah_gui PRIVATE Qt6::Widgets Qt6::Gui Qt6::Network Qt6::WebSockets
                                           $<$<TARGET_EXISTS:Qt6::Multimedia>:Qt6::Multimedia>)

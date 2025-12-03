@@ -26,6 +26,8 @@ public:
     void restart(const QString &symbol, int levels);
     void stop();
     bool isRunning() const;
+    void setCompression(int factor);
+    int compression() const { return m_tickCompression; }
 
 private slots:
     void handleReadyRead();
@@ -56,4 +58,5 @@ private:
     QTimer m_watchdogTimer;
     qint64 m_lastUpdateMs = 0;
     const int m_watchdogIntervalMs = 15000;
+    int m_tickCompression = 1;
 };
