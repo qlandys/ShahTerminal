@@ -480,7 +480,13 @@ void DomWidget::paintEvent(QPaintEvent *event)
                 continue;
             }
 
-            QColor color = order.side == OrderSide::Buy ? QColor("#1e88e5") : QColor("#ef5350");
+            const DomLevel &lvl = m_snapshot.levels[rowIdx];
+            const double bookQty = order.side == OrderSide::Buy ? std::max(0.0, lvl.bidQty)
+                                                                : std::max(0.0, lvl.askQty);
+            const double myQty = std::max(0.0, order.quantity);
+            const double totalQty = bookQty + myQty;
+
+            QColor color = order.side == OrderSide::Buy ? m_style.bid : m_style.ask;
             qint64 age = nowMs - order.createdMs;
             const qint64 fadeWindow = 20000;
             double fade = 1.0;
@@ -489,23 +495,53 @@ void DomWidget::paintEvent(QPaintEvent *event)
             } else if (age > 0) {
                 fade = 1.0 - (static_cast<double>(age) / fadeWindow) * 0.65;
             }
-            int alpha = std::clamp(static_cast<int>(200 * fade), 40, 220);
-            color.setAlpha(alpha);
-            QColor border = color.darker(180);
-            border.setAlpha(std::clamp(alpha + 30, 60, 240));
+            int alpha = std::clamp(static_cast<int>(150 * fade), 25, 190);
+            QColor fill = color;
+            fill.setAlpha(alpha);
+            QColor border = color.darker(160);
+            border.setAlpha(std::clamp(alpha + 50, 80, 230));
 
-            p.fillRect(orderRect, color);
+            // Book overlay: subtle, not touching price column.
+            const int bookWidth = std::max(0, priceLeft + 1);
+            QRect barRect(0, y, bookWidth, rowIntHeight);
+            p.fillRect(barRect, fill);
             p.setPen(border);
-            p.drawRect(orderRect.adjusted(0, 0, -1, -1));
+            p.drawRect(barRect.adjusted(0, 0, -1, -1));
 
-            QString text = QStringLiteral("%1 %2")
-                               .arg(order.side == OrderSide::Buy ? tr("BUY") : tr("SELL"))
-                               .arg(order.quantity, 0, 'g', 6);
-            QFont orderFont = p.font();
-            orderFont.setBold(true);
-            p.setFont(orderFont);
-            p.setPen(Qt::white);
-            p.drawText(orderRect.adjusted(6, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, text);
+            // My portion overlay near price edge for readability.
+            if (totalQty > 0.0 && bookWidth > 12) {
+                const double ratio = std::clamp(myQty / totalQty, 0.0, 1.0);
+                int myWidth = static_cast<int>(std::round(barRect.width() * ratio));
+                myWidth = std::clamp(myWidth, 6, barRect.width());
+                QRect myBar(barRect.right() - myWidth + 1, y + 1, myWidth - 2, rowIntHeight - 2);
+                QColor myFill = color;
+                myFill.setAlpha(std::clamp(alpha + 40, 60, 220));
+                p.fillRect(myBar, myFill);
+            }
+
+            // Text: total volume (book+mine) left; my volume tight to price edge.
+            const QString totalText = formatQty(totalQty);
+            const QString myText = formatQty(myQty);
+
+            QFont totalFont = p.font();
+            totalFont.setBold(true);
+            p.setFont(totalFont);
+            QColor totalColor = QColor(245, 247, 250);
+            totalColor.setAlpha(235);
+            p.setPen(totalColor);
+            QRect totalRect(barRect.left() + 6, y, barRect.width() - 12, rowIntHeight);
+            p.drawText(totalRect, Qt::AlignVCenter | Qt::AlignLeft, totalText);
+
+            QFont myFont = totalFont;
+            myFont.setItalic(true);
+            p.setFont(myFont);
+            QColor myColor = border.lighter(130);
+            myColor.setAlpha(240);
+            const int myTxtWidth = fm.horizontalAdvance(myText) + 8;
+            QRect myRect(std::max(priceLeft - myTxtWidth - 4, 0), y, myTxtWidth, rowIntHeight);
+            p.setPen(myColor);
+            p.drawText(myRect, Qt::AlignVCenter | Qt::AlignRight, myText);
+
             p.setFont(font());
         }
     }

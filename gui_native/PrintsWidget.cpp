@@ -7,6 +7,7 @@
 #include <QTimerEvent>
 #include <QtGlobal>
 #include <QDebug>
+#include <QDateTime>
 
 #include <algorithm>
 #include <cmath>
@@ -113,6 +114,12 @@ void PrintsWidget::setRowHeightOnly(int rowHeight)
     setMinimumHeight(totalHeight);
     setMaximumHeight(totalHeight);
     updateGeometry();
+    update();
+}
+
+void PrintsWidget::setLocalOrders(const QVector<LocalOrderMarker> &orders)
+{
+    m_orderMarkers = orders;
     update();
 }
 
@@ -225,12 +232,6 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
         const PrintItem &it = m_items[i];
         int rowIdx = -1;
         const int y = itemToY(it, &rowIdx);
-        qDebug() << "[PRINTS draw]"
-                 << "rowIdx" << rowIdx
-                 << "rowHint" << it.rowHint
-                 << "price" << it.price
-                 << "qtyUSDT" << it.qty
-                 << "offset" << (m_rowOffsetValid ? m_rowOffset : 0);
         const double xCenter = padding + (i - startIdx) * slotW + slotW * 0.5;
 
         const double magnitude = std::log10(1.0 + std::abs(it.qty));
@@ -266,6 +267,68 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
         p.setFont(textFont);
         p.drawText(circleRect, Qt::AlignCenter, text);
         p.setFont(boldFont);
+    }
+
+    // Local order markers hugging правый край (к DOM).
+    if (!m_orderMarkers.isEmpty()) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        QFont markerFont = font();
+        markerFont.setBold(true);
+        QFontMetrics fmMarker(markerFont);
+        const int markerHeight = m_rowHeight - 2;
+        const int tip = std::clamp(m_rowHeight / 2, 8, 14);
+        const int markerWidth = std::max(tip * 2, std::min(36, w / 4));
+        for (const auto &ord : m_orderMarkers) {
+            int rowIdx = rowForPrice(ord.price);
+            if (rowIdx >= 0) {
+                rowIdx = applyRowOffset(rowIdx);
+            }
+        if (rowIdx < 0 || rowIdx >= rows) {
+            continue;
+        }
+        const int yCenter = rowIdx * m_rowHeight + (m_rowHeight / 2);
+        const int top = yCenter - markerHeight / 2;
+        const int bottom = top + markerHeight;
+        const int right = w - 2;
+        const int left = right - markerWidth;
+        const int midY = (top + bottom) / 2;
+
+        qint64 age = nowMs - ord.createdMs;
+        const qint64 fadeWindow = 20000;
+        double fade = 1.0;
+        if (age > fadeWindow) {
+                fade = 0.35;
+            } else if (age > 0) {
+                fade = 1.0 - (static_cast<double>(age) / fadeWindow) * 0.65;
+            }
+            QColor base = ord.buy ? QColor("#4caf50") : QColor("#ef5350");
+            int alpha = std::clamp(static_cast<int>(180 * fade), 50, 210);
+            base.setAlpha(alpha);
+            QColor edge = ord.buy ? QColor("#2f6c37") : QColor("#992626");
+            edge.setAlpha(std::clamp(alpha + 30, 80, 230));
+
+            const int tipOffset = tip;
+            QPolygon env;
+            env << QPoint(left, top)
+                << QPoint(right - tipOffset, top)
+                << QPoint(right, midY) // острый угол в сторону DOM
+                << QPoint(right - tipOffset, bottom)
+                << QPoint(left, bottom);
+            p.setBrush(base);
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(env);
+            p.setPen(QPen(edge, 1.4));
+            p.drawPolygon(env);
+
+            const QString text = formatQty(ord.quantity);
+            p.setFont(markerFont);
+            QColor tcol = QColor("#f7f9fb");
+            tcol.setAlpha(245);
+            p.setPen(tcol);
+            QRect textRect(left + 2, top, markerWidth - tipOffset - 4, markerHeight);
+            p.drawText(textRect, Qt::AlignCenter, text);
+        }
+        p.setFont(font());
     }
 
     if (hasHoverRow && !m_hoverText.isEmpty()) {

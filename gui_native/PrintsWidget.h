@@ -13,6 +13,13 @@ struct PrintItem {
     int rowHint = -1;
 };
 
+struct LocalOrderMarker {
+    double price = 0.0;
+    double quantity = 0.0; // notional or size in quote units
+    bool buy = true;
+    qint64 createdMs = 0;
+};
+
 class PrintsWidget : public QWidget {
     Q_OBJECT
 public:
@@ -21,6 +28,7 @@ public:
     void setPrints(const QVector<PrintItem> &items);
     void setLadderPrices(const QVector<double> &prices, int rowHeight, double tickSize);
     void setRowHeightOnly(int rowHeight);
+    void setLocalOrders(const QVector<LocalOrderMarker> &orders);
 
 public slots:
     void setHoverInfo(int row, double price, const QString &text);
@@ -54,4 +62,5 @@ private:
     bool m_rowOffsetValid = false;
     // Keep prints widget height aligned with DomWidget (which has an extra info area at the bottom).
     static constexpr int kDomInfoAreaHeight = 26;
+    QVector<LocalOrderMarker> m_orderMarkers;
 };

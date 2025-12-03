@@ -1965,6 +1965,10 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     result.notionalGroup = notionalGroup;
     result.localOrders.clear();
     result.dom->setLocalOrders(result.localOrders);
+    if (result.prints) {
+        QVector<LocalOrderMarker> empty;
+        result.prints->setLocalOrders(empty);
+    }
     return result;
 }
 
@@ -2187,6 +2191,19 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
             column->localOrders.remove(0, column->localOrders.size() - maxMarkers);
         }
         column->dom->setLocalOrders(column->localOrders);
+        if (column->prints) {
+            QVector<LocalOrderMarker> printMarkers;
+            printMarkers.reserve(column->localOrders.size());
+            for (const auto &m : column->localOrders) {
+                LocalOrderMarker pm;
+                pm.price = m.price;
+                pm.quantity = m.quantity;
+                pm.buy = (m.side == OrderSide::Buy);
+                pm.createdMs = m.createdMs;
+                printMarkers.push_back(pm);
+            }
+            column->prints->setLocalOrders(printMarkers);
+        }
     }
     statusBar()->showMessage(
         tr("Submitting %1 %2 @ %3")
