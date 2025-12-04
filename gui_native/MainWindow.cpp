@@ -449,12 +449,6 @@ MainWindow::MainWindow(const QString &backendPath,
                     statusBar()->showMessage(msg, 3000);
                 });
         connect(m_tradeManager,
-                &TradeManager::orderCanceled,
-                this,
-                [this](const QString &account, const QString &sym, OrderSide side, double price) {
-                    removeLocalOrderMarker(account, sym, side, price);
-                });
-        connect(m_tradeManager,
                 &TradeManager::orderFailed,
                 this,
                 [this](const QString &account, const QString &sym, const QString &message) {
@@ -464,6 +458,16 @@ MainWindow::MainWindow(const QString &backendPath,
                     statusBar()->showMessage(msg, 4000);
                     addNotification(msg, true);
                 });
+        connect(m_tradeManager,
+                &TradeManager::orderCanceled,
+                this,
+                [this](const QString &account, const QString &sym, OrderSide side, double price) {
+                    removeLocalOrderMarker(account, sym, side, price);
+                });
+        connect(m_tradeManager,
+                &TradeManager::localOrdersUpdated,
+                this,
+                &MainWindow::handleLocalOrdersUpdated);
     }
 
     createInitialWorkspace();
@@ -4168,32 +4172,19 @@ void MainWindow::addLocalOrderMarker(const QString &accountName,
                 && col.accountName.trimmed().toLower() != accountLower) {
                 continue;
             }
-            DomWidget::LocalOrderMarker marker;
-            marker.price = price;
-            // Store display quantity in quote currency (notional) for consistency with presets.
-            marker.quantity = std::abs(quantity * price);
-            marker.side = side;
-            marker.createdMs = ts;
-            col.localOrders.append(marker);
-            if (col.localOrders.size() > maxMarkers) {
-                col.localOrders.remove(0, col.localOrders.size() - maxMarkers);
+            DomWidget::LocalOrderMarker base;
+            base.price = price;
+            base.quantity = std::abs(quantity * price);
+            base.side = side;
+            base.createdMs = ts;
+            MainWindow::ManualOrder entry;
+            entry.marker = base;
+            entry.synced = false;
+            col.manualOrders.append(entry);
+            if (col.manualOrders.size() > maxMarkers) {
+                col.manualOrders.remove(0, col.manualOrders.size() - maxMarkers);
             }
-            if (col.dom) {
-                col.dom->setLocalOrders(col.localOrders);
-            }
-            if (col.prints) {
-                QVector<LocalOrderMarker> printMarkers;
-                printMarkers.reserve(col.localOrders.size());
-                for (const auto &m : col.localOrders) {
-                    LocalOrderMarker pm;
-                    pm.price = m.price;
-                    pm.quantity = m.quantity;
-                    pm.buy = (m.side == OrderSide::Buy);
-                    pm.createdMs = m.createdMs;
-                    printMarkers.push_back(pm);
-                }
-                col.prints->setLocalOrders(printMarkers);
-            }
+            refreshColumnMarkers(col);
         }
     }
 }
@@ -4213,34 +4204,113 @@ void MainWindow::removeLocalOrderMarker(const QString &accountName,
                 && col.accountName.trimmed().toLower() != accountLower) {
                 continue;
             }
-            auto match = [&](const DomWidget::LocalOrderMarker &m) {
+            auto matchMarker = [&](const DomWidget::LocalOrderMarker &m) {
                 if (m.side != side) return false;
                 return std::abs(m.price - price) <= tol;
             };
-            int before = col.localOrders.size();
-            col.localOrders.erase(std::remove_if(col.localOrders.begin(), col.localOrders.end(), match),
+            const int beforeLocal = col.localOrders.size();
+            col.localOrders.erase(std::remove_if(col.localOrders.begin(),
+                                                 col.localOrders.end(),
+                                                 matchMarker),
                                   col.localOrders.end());
-            if (col.localOrders.size() != before) {
-                if (col.dom) {
-                    col.dom->setLocalOrders(col.localOrders);
-                }
-                if (col.prints) {
-                    QVector<LocalOrderMarker> printMarkers;
-                    printMarkers.reserve(col.localOrders.size());
-                    for (const auto &m : col.localOrders) {
-                        LocalOrderMarker pm;
-                        pm.price = m.price;
-                        pm.quantity = m.quantity;
-                        pm.buy = (m.side == OrderSide::Buy);
-                        pm.createdMs = m.createdMs;
-                        printMarkers.push_back(pm);
-                    }
-                    col.prints->setLocalOrders(printMarkers);
-                }
+            auto matchManual = [&](const ManualOrder &m) {
+                if (m.marker.side != side) return false;
+                return std::abs(m.marker.price - price) <= tol;
+            };
+            const int beforeManual = col.manualOrders.size();
+            const auto manualIt = std::remove_if(col.manualOrders.begin(),
+                                                 col.manualOrders.end(),
+                                                 matchManual);
+            if (manualIt != col.manualOrders.end()) {
+                col.manualOrders.erase(manualIt, col.manualOrders.end());
+            }
+            if (col.localOrders.size() != beforeLocal || col.manualOrders.size() != beforeManual) {
+                refreshColumnMarkers(col);
             }
         }
     }
 }
+
+void MainWindow::handleLocalOrdersUpdated(const QString &accountName,
+                                          const QString &symbol,
+                                          const QVector<DomWidget::LocalOrderMarker> &markers)
+{
+    const QString normalizedAccount = accountName.trimmed().isEmpty()
+                                           ? QStringLiteral("MEXC Spot")
+                                           : accountName.trimmed();
+    const QString targetAccount = normalizedAccount.toLower();
+    const QString targetSymbol = symbol.toUpper();
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            if (!targetSymbol.isEmpty() && col.symbol.toUpper() != targetSymbol) {
+                continue;
+            }
+            if (!targetAccount.isEmpty()
+                && !col.accountName.trimmed().isEmpty()
+                && col.accountName.toLower() != targetAccount) {
+                continue;
+            }
+            col.remoteOrders = markers;
+            refreshColumnMarkers(col);
+        }
+    }
+}
+
+bool MainWindow::containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker> &markers,
+                                       const DomWidget::LocalOrderMarker &candidate) const
+{
+    constexpr double tol = 1e-8;
+    for (const auto &existing : markers) {
+        if (existing.side == candidate.side && std::abs(existing.price - candidate.price) <= tol) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::refreshColumnMarkers(DomColumn &col)
+{
+    QVector<DomWidget::LocalOrderMarker> combined = col.remoteOrders;
+    QVector<ManualOrder> updatedManuals;
+    updatedManuals.reserve(col.manualOrders.size());
+    for (auto &manual : col.manualOrders) {
+        const bool remoteHas = containsSimilarMarker(col.remoteOrders, manual.marker);
+        if (remoteHas) {
+            manual.synced = true;
+            if (!containsSimilarMarker(combined, manual.marker)) {
+                combined.push_back(manual.marker);
+            }
+            updatedManuals.push_back(manual);
+        } else if (!manual.synced) {
+            // still waiting for remote ack
+            if (!containsSimilarMarker(combined, manual.marker)) {
+                combined.push_back(manual.marker);
+            }
+            updatedManuals.push_back(manual);
+        } else {
+            // synced but remote gone -> drop marker
+        }
+    }
+    col.manualOrders = std::move(updatedManuals);
+    col.localOrders = combined;
+    if (col.dom) {
+        col.dom->setLocalOrders(col.localOrders);
+    }
+    if (col.prints) {
+        QVector<LocalOrderMarker> printMarkers;
+        printMarkers.reserve(col.localOrders.size());
+        for (const auto &m : col.localOrders) {
+            LocalOrderMarker pm;
+            pm.price = m.price;
+            pm.quantity = m.quantity;
+            pm.buy = (m.side == OrderSide::Buy);
+            pm.createdMs = m.createdMs;
+            printMarkers.push_back(pm);
+        }
+        col.prints->setLocalOrders(printMarkers);
+    }
+}
+
 
 void MainWindow::fetchSymbolLibrary()
 {

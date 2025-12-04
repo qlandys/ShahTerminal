@@ -9,6 +9,7 @@
 #include "../../../../gui_native/MainWindow.h"
 #include <QtNetwork/QSslError>
 #include <QtCore/qmetatype.h>
+#include <QtCore/QList>
 
 #include <QtCore/qtmochelpers.h>
 
@@ -72,6 +73,9 @@ template <> constexpr inline auto MainWindow::qt_create_metaobjectdata<qt_meta_t
         "symbol",
         "TradePosition",
         "position",
+        "handleLocalOrdersUpdated",
+        "QList<DomWidget::LocalOrderMarker>",
+        "markers",
         "applyNotionalPreset",
         "presetIndex",
         "startNotionalEdit",
@@ -124,20 +128,24 @@ template <> constexpr inline auto MainWindow::qt_create_metaobjectdata<qt_meta_t
         QtMocHelpers::SlotData<void(const QString &, const QString &, const TradePosition &)>(28, 2, QMC::AccessPrivate, QMetaType::Void, {{
             { QMetaType::QString, 29 }, { QMetaType::QString, 30 }, { 0x80000000 | 31, 32 },
         }}),
+        // Slot 'handleLocalOrdersUpdated'
+        QtMocHelpers::SlotData<void(const QString &, const QString &, const QVector<DomWidget::LocalOrderMarker> &)>(33, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::QString, 29 }, { QMetaType::QString, 30 }, { 0x80000000 | 34, 35 },
+        }}),
         // Slot 'applyNotionalPreset'
-        QtMocHelpers::SlotData<void(int)>(33, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { QMetaType::Int, 34 },
+        QtMocHelpers::SlotData<void(int)>(36, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::Int, 37 },
         }}),
         // Slot 'startNotionalEdit'
-        QtMocHelpers::SlotData<void(QWidget *, int)>(35, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { 0x80000000 | 36, 37 }, { QMetaType::Int, 34 },
+        QtMocHelpers::SlotData<void(QWidget *, int)>(38, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { 0x80000000 | 39, 40 }, { QMetaType::Int, 37 },
         }}),
         // Slot 'commitNotionalEdit'
-        QtMocHelpers::SlotData<void(QWidget *, bool)>(38, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { 0x80000000 | 36, 37 }, { QMetaType::Bool, 39 },
+        QtMocHelpers::SlotData<void(QWidget *, bool)>(41, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { 0x80000000 | 39, 40 }, { QMetaType::Bool, 42 },
         }}),
         // Slot 'toggleAlertsPanel'
-        QtMocHelpers::SlotData<void()>(40, 2, QMC::AccessPrivate, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(43, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -174,10 +182,11 @@ void MainWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 10: _t->openSettingsWindow(); break;
         case 11: _t->handleConnectionStateChanged((*reinterpret_cast<std::add_pointer_t<ConnectionStore::Profile>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<TradeManager::ConnectionState>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[3]))); break;
         case 12: _t->handlePositionChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<TradePosition>>(_a[3]))); break;
-        case 13: _t->applyNotionalPreset((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
-        case 14: _t->startNotionalEdit((*reinterpret_cast<std::add_pointer_t<QWidget*>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[2]))); break;
-        case 15: _t->commitNotionalEdit((*reinterpret_cast<std::add_pointer_t<QWidget*>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<bool>>(_a[2]))); break;
-        case 16: _t->toggleAlertsPanel(); break;
+        case 13: _t->handleLocalOrdersUpdated((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<QList<DomWidget::LocalOrderMarker>>>(_a[3]))); break;
+        case 14: _t->applyNotionalPreset((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
+        case 15: _t->startNotionalEdit((*reinterpret_cast<std::add_pointer_t<QWidget*>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<int>>(_a[2]))); break;
+        case 16: _t->commitNotionalEdit((*reinterpret_cast<std::add_pointer_t<QWidget*>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<bool>>(_a[2]))); break;
+        case 17: _t->toggleAlertsPanel(); break;
         default: ;
         }
     }
@@ -191,14 +200,14 @@ void MainWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
                 *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType::fromType< TradePosition >(); break;
             }
             break;
-        case 14:
+        case 15:
             switch (*reinterpret_cast<int*>(_a[1])) {
             default: *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType(); break;
             case 0:
                 *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType::fromType< QWidget* >(); break;
             }
             break;
-        case 15:
+        case 16:
             switch (*reinterpret_cast<int*>(_a[1])) {
             default: *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType(); break;
             case 0:
@@ -228,14 +237,14 @@ int MainWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 17)
+        if (_id < 18)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 17;
+        _id -= 18;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 17)
+        if (_id < 18)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 17;
+        _id -= 18;
     }
     return _id;
 }

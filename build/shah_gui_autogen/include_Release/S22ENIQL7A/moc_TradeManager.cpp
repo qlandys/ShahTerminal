@@ -9,6 +9,7 @@
 #include "../../../../gui_native/TradeManager.h"
 #include <QtNetwork/QSslError>
 #include <QtCore/qmetatype.h>
+#include <QtCore/QList>
 
 #include <QtCore/qtmochelpers.h>
 
@@ -60,6 +61,9 @@ template <> constexpr inline auto TradeManager::qt_create_metaobjectdata<qt_meta
         "TradePosition",
         "position",
         "logMessage",
+        "localOrdersUpdated",
+        "QList<DomWidget::LocalOrderMarker>",
+        "markers",
         "ConnectionState",
         "Disconnected",
         "Connecting",
@@ -93,16 +97,20 @@ template <> constexpr inline auto TradeManager::qt_create_metaobjectdata<qt_meta
         QtMocHelpers::SignalData<void(const QString &)>(20, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::QString, 7 },
         }}),
+        // Signal 'localOrdersUpdated'
+        QtMocHelpers::SignalData<void(const QString &, const QString &, const QVector<DomWidget::LocalOrderMarker> &)>(21, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 22, 23 },
+        }}),
     };
     QtMocHelpers::UintData qt_properties {
     };
     QtMocHelpers::UintData qt_enums {
         // enum 'ConnectionState'
-        QtMocHelpers::EnumData<enum ConnectionState>(21, 21, QMC::EnumIsScoped).add({
-            {   22, ConnectionState::Disconnected },
-            {   23, ConnectionState::Connecting },
-            {   24, ConnectionState::Connected },
-            {   25, ConnectionState::Error },
+        QtMocHelpers::EnumData<enum ConnectionState>(24, 24, QMC::EnumIsScoped).add({
+            {   25, ConnectionState::Disconnected },
+            {   26, ConnectionState::Connecting },
+            {   27, ConnectionState::Connected },
+            {   28, ConnectionState::Error },
         }),
     };
     return QtMocHelpers::metaObjectData<TradeManager, qt_meta_tag_ZN12TradeManagerE_t>(QMC::MetaObjectFlag{}, qt_stringData,
@@ -129,6 +137,7 @@ void TradeManager::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
         case 3: _t->orderFailed((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[3]))); break;
         case 4: _t->positionChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<TradePosition>>(_a[3]))); break;
         case 5: _t->logMessage((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
+        case 6: _t->localOrdersUpdated((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<QList<DomWidget::LocalOrderMarker>>>(_a[3]))); break;
         default: ;
         }
     }
@@ -157,6 +166,8 @@ void TradeManager::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
             return;
         if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & )>(_a, &TradeManager::logMessage, 5))
             return;
+        if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & , const QString & , const QVector<DomWidget::LocalOrderMarker> & )>(_a, &TradeManager::localOrdersUpdated, 6))
+            return;
     }
 }
 
@@ -179,14 +190,14 @@ int TradeManager::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 6)
+        if (_id < 7)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 6;
+        _id -= 7;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 6)
+        if (_id < 7)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 6;
+        _id -= 7;
     }
     return _id;
 }
@@ -225,5 +236,11 @@ void TradeManager::positionChanged(const QString & _t1, const QString & _t2, con
 void TradeManager::logMessage(const QString & _t1)
 {
     QMetaObject::activate<void>(this, &staticMetaObject, 5, nullptr, _t1);
+}
+
+// SIGNAL 6
+void TradeManager::localOrdersUpdated(const QString & _t1, const QString & _t2, const QVector<DomWidget::LocalOrderMarker> & _t3)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 6, nullptr, _t1, _t2, _t3);
 }
 QT_WARNING_POP

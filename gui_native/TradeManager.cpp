@@ -9,6 +9,7 @@
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QStringList>
+#include <QSet>
 #include <algorithm>
 #include <cstddef>
 
@@ -524,6 +525,7 @@ void TradeManager::disconnect(ConnectionStore::Profile profile)
         return;
     }
     closeWebSocket(*ctx);
+    clearLocalOrderSnapshots(*ctx);
     ctx->listenKey.clear();
     ctx->hasSubscribed = false;
     setState(*ctx, ConnectionState::Disconnected, tr("Disconnected"));
@@ -608,15 +610,19 @@ void TradeManager::placeLimitOrder(const QString &symbol,
         const bool isSwap = (profile == ConnectionStore::Profile::UzxSwap);
         const QString wireSym = uzxWireSymbol(sym, isSwap);
         QJsonObject payload;
+        const QString priceStr = QString::number(price, 'f', 8);
+        const QString amountStr = QString::number(quantity, 'f', 8);
         payload.insert(QStringLiteral("product_name"), wireSym);
         payload.insert(QStringLiteral("order_type"), 2);
-        payload.insert(QStringLiteral("number"), quantity);
-        payload.insert(QStringLiteral("price"), QString::number(price, 'f', 8));
-        payload.insert(QStringLiteral("amount"), QString::number(quantity, 'f', 8));
-        payload.insert(QStringLiteral("trade_ccy"), 1);
-        payload.insert(QStringLiteral("pos_side"),
-                       side == OrderSide::Buy ? QStringLiteral("LG") : QStringLiteral("SH"));
+        payload.insert(QStringLiteral("price"), priceStr);
+        payload.insert(QStringLiteral("amount"), amountStr);
         payload.insert(QStringLiteral("order_buy_or_sell"), side == OrderSide::Buy ? 1 : 2);
+        if (isSwap) {
+            payload.insert(QStringLiteral("number"), amountStr);
+            payload.insert(QStringLiteral("trade_ccy"), 1);
+            payload.insert(QStringLiteral("pos_side"),
+                           side == OrderSide::Buy ? QStringLiteral("LG") : QStringLiteral("ST"));
+        }
         const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
         emit logMessage(QStringLiteral("%1 UZX REST body: %2")
                             .arg(contextTag(ctx.accountName), QString::fromUtf8(body)));
@@ -983,6 +989,11 @@ void TradeManager::initializeWebSocket(Context &ctx, const QString &listenKey)
         ctx.closingSocket = true;
         ctx.privateSocket.close();
     }
+    if (ctx.openOrdersTimer.isActive()) {
+        ctx.openOrdersTimer.stop();
+    }
+    ctx.openOrdersPending = false;
+    ctx.trackedSymbols.clear();
     QUrl url(QStringLiteral("wss://wbs-api.mexc.com/ws"));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("listenKey"), listenKey);
@@ -1025,6 +1036,10 @@ void TradeManager::subscribePrivateChannels(Context &ctx)
     ctx.privateSocket.sendTextMessage(message);
     emit logMessage(QStringLiteral("%1 Subscribed to private channels.").arg(contextTag(ctx.accountName)));
     ctx.hasSubscribed = true;
+    if (!ctx.openOrdersTimer.isActive()) {
+        fetchOpenOrders(ctx);
+        ctx.openOrdersTimer.start();
+    }
 }
 
 void TradeManager::subscribeUzxPrivate(Context &ctx)
@@ -1101,9 +1116,85 @@ void TradeManager::closeWebSocket(Context &ctx)
     }
 }
 
+void TradeManager::fetchOpenOrders(Context &ctx)
+{
+    if (ctx.profile == ConnectionStore::Profile::UzxSwap
+        || ctx.profile == ConnectionStore::Profile::UzxSpot) {
+        return;
+    }
+    if (ctx.openOrdersPending) {
+        return;
+    }
+    ctx.openOrdersPending = true;
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("recvWindow"), QStringLiteral("5000"));
+    query.addQueryItem(QStringLiteral("timestamp"),
+                       QString::number(QDateTime::currentMSecsSinceEpoch()));
+    QUrlQuery signedQuery = query;
+    signedQuery.addQueryItem(QStringLiteral("signature"),
+                             QString::fromLatin1(signPayload(query, ctx)));
+    QNetworkRequest req = makePrivateRequest(QStringLiteral("/api/v3/openOrders"),
+                                             signedQuery,
+                                             QByteArray(),
+                                             ctx);
+    auto *reply = m_network.get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, ctxPtr = &ctx]() {
+        ctxPtr->openOrdersPending = false;
+        const auto err = reply->error();
+        const QByteArray raw = reply->readAll();
+        reply->deleteLater();
+        if (err != QNetworkReply::NoError) {
+            emit logMessage(QStringLiteral("%1 openOrders fetch failed: %2")
+                                .arg(contextTag(ctxPtr->accountName),
+                                     raw.isEmpty() ? reply->errorString() : QString::fromUtf8(raw)));
+            return;
+        }
+        QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (!doc.isArray()) {
+            return;
+        }
+        QHash<QString, QVector<DomWidget::LocalOrderMarker>> symbolMap;
+        QSet<QString> newSymbols;
+        const QJsonArray arr = doc.array();
+        for (const auto &value : arr) {
+            if (!value.isObject()) {
+                continue;
+            }
+            const QJsonObject order = value.toObject();
+            const QString symbol = normalizedSymbol(order.value(QStringLiteral("symbol")).toString());
+            if (symbol.isEmpty()) {
+                continue;
+            }
+            const double price = order.value(QStringLiteral("price")).toString().toDouble();
+            const double origQty = order.value(QStringLiteral("origQty")).toString().toDouble();
+            const double execQty = order.value(QStringLiteral("executedQty")).toString().toDouble();
+            const double remainQty = origQty - execQty;
+            if (price <= 0.0 || remainQty <= 0.0) {
+                continue;
+            }
+            DomWidget::LocalOrderMarker marker;
+            marker.price = price;
+            marker.quantity = std::abs(price * remainQty);
+            const QString side = order.value(QStringLiteral("side")).toString();
+            marker.side = side.compare(QStringLiteral("SELL"), Qt::CaseInsensitive) == 0 ? OrderSide::Sell
+                                                                                         : OrderSide::Buy;
+            marker.createdMs = order.value(QStringLiteral("time")).toVariant().toLongLong();
+            symbolMap[symbol].push_back(marker);
+            newSymbols.insert(symbol);
+        }
+        QSet<QString> allSymbols = ctxPtr->trackedSymbols;
+        allSymbols.unite(newSymbols);
+        for (const QString &symbol : allSymbols) {
+            emit localOrdersUpdated(ctxPtr->accountName, symbol, symbolMap.value(symbol));
+        }
+        ctxPtr->trackedSymbols = newSymbols;
+    });
+}
+
 void TradeManager::resetConnection(Context &ctx, const QString &reason)
 {
     closeWebSocket(ctx);
+    clearLocalOrderSnapshots(ctx);
     ctx.hasSubscribed = false;
     ctx.listenKey.clear();
     setState(ctx, ConnectionState::Error, reason);
@@ -1155,6 +1246,7 @@ void TradeManager::processPrivateOrder(Context &ctx,
         return;
     }
     const QString identifier = !event.id.isEmpty() ? event.id : event.clientId;
+    const QString normalizedSym = normalizedSymbol(symbol);
     emit logMessage(QStringLiteral("%1 Order %2 (%3): status=%4 remain=%5 cumQty=%6 @avg %7")
                         .arg(contextTag(ctx.accountName))
                         .arg(identifier)
@@ -1163,10 +1255,28 @@ void TradeManager::processPrivateOrder(Context &ctx,
                         .arg(event.remainQuantity, 0, 'f', 8)
                         .arg(event.cumulativeQuantity, 0, 'f', 8)
                         .arg(event.avgPrice, 0, 'f', 8));
+    const QString orderId = !event.id.isEmpty() ? event.id : event.clientId;
+    const OrderSide side = event.tradeType == 1 ? OrderSide::Buy : OrderSide::Sell;
+    if (!orderId.isEmpty() && !normalizedSym.isEmpty()) {
+        const double price = event.price;
+        const double remain = event.remainQuantity;
+        const double notional = price > 0.0 && remain > 0.0 ? price * remain : 0.0;
+        if (notional > 0.0) {
+            OrderRecord record;
+            record.symbol = normalizedSym;
+            record.side = side;
+            record.price = price;
+            record.quantityNotional = notional;
+            record.createdMs = event.createTime > 0 ? event.createTime : QDateTime::currentMSecsSinceEpoch();
+            ctx.activeOrders.insert(orderId, record);
+        } else {
+            ctx.activeOrders.remove(orderId);
+        }
+        emitLocalOrderSnapshot(ctx, normalizedSym);
+    }
     if (event.status == 2 || event.status == 4 || event.status == 5
         || event.remainQuantity <= 0.0) {
-        const OrderSide side = event.tradeType == 1 ? OrderSide::Buy : OrderSide::Sell;
-        emit orderCanceled(ctx.accountName, normalizedSymbol(symbol), side, event.price);
+        emit orderCanceled(ctx.accountName, normalizedSym, side, event.price);
     }
 }
 
@@ -1184,6 +1294,44 @@ void TradeManager::processPrivateAccount(Context &ctx, const QByteArray &body)
                         .arg(event.balance, 0, 'f', 8)
                         .arg(event.frozen, 0, 'f', 8)
                         .arg(event.changeType));
+}
+
+void TradeManager::emitLocalOrderSnapshot(Context &ctx, const QString &symbol)
+{
+    const QString normalized = normalizedSymbol(symbol);
+    QVector<DomWidget::LocalOrderMarker> markers;
+    markers.reserve(ctx.activeOrders.size());
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    for (const auto &record : ctx.activeOrders) {
+        if (record.symbol != normalized || record.price <= 0.0 || record.quantityNotional <= 0.0) {
+            continue;
+        }
+        DomWidget::LocalOrderMarker marker;
+        marker.price = record.price;
+        marker.quantity = record.quantityNotional;
+        marker.side = record.side;
+        marker.createdMs = record.createdMs > 0 ? record.createdMs : nowMs;
+        markers.push_back(marker);
+    }
+    emit localOrdersUpdated(ctx.accountName, normalized, markers);
+}
+
+void TradeManager::clearLocalOrderSnapshots(Context &ctx)
+{
+    if (ctx.activeOrders.isEmpty()) {
+        return;
+    }
+    QSet<QString> symbols;
+    symbols.reserve(ctx.activeOrders.size());
+    for (const auto &record : ctx.activeOrders) {
+        if (!record.symbol.isEmpty()) {
+            symbols.insert(record.symbol);
+        }
+    }
+    ctx.activeOrders.clear();
+    for (const QString &symbol : symbols) {
+        emit localOrdersUpdated(ctx.accountName, symbol, {});
+    }
 }
 
 TradeManager::Context *TradeManager::contextForProfile(ConnectionStore::Profile profile) const
@@ -1226,6 +1374,16 @@ TradeManager::Context &TradeManager::ensureContext(ConnectionStore::Profile prof
                                       .arg(contextTag(ctx->accountName)));
             self->connectToExchange(ctx->profile);
         }
+    });
+
+    ctx->openOrdersTimer.setSingleShot(false);
+    ctx->openOrdersTimer.setInterval(4000);
+    self->connect(&ctx->openOrdersTimer, &QTimer::timeout, self, [self, ctx]() {
+        if (ctx->profile == ConnectionStore::Profile::UzxSwap
+            || ctx->profile == ConnectionStore::Profile::UzxSpot) {
+            return;
+        }
+        self->fetchOpenOrders(*ctx);
     });
 
     self->connect(&ctx->privateSocket, &QWebSocket::connected, self, [self, ctx]() {

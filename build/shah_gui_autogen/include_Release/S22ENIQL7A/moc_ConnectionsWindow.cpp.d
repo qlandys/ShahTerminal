@@ -5,6 +5,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QList \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QMetaType \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QObject \
+  C:/Qt/6.10.1/msvc2022_64/include/QtCore/QSet \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QSharedDataPointer \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QString \
   C:/Qt/6.10.1/msvc2022_64/include/QtCore/QTimer \
@@ -212,6 +213,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsocketprotocol.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsockets_global.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QDialog \
+  C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/QWidget \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qdialog.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qsizepolicy.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qtwidgets-config.h \
@@ -219,5 +221,7 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qtwidgetsglobal.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWidgets/qwidget.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/ConnectionStore.h \
+  C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/DomTypes.h \
+  C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/DomWidget.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeManager.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeTypes.h

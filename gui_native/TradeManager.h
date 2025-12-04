@@ -2,12 +2,14 @@
 
 #include "TradeTypes.h"
 #include "ConnectionStore.h"
+#include "DomWidget.h"
 
 #include <QObject>
 #include <QAbstractSocket>
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QSet>
 #include <QUrlQuery>
 #include <QTimer>
 #include <QWebSocket>
@@ -63,8 +65,18 @@ signals:
                          const QString &symbol,
                          const TradePosition &position);
     void logMessage(const QString &message);
+    void localOrdersUpdated(const QString &accountName,
+                            const QString &symbol,
+                            const QVector<DomWidget::LocalOrderMarker> &markers);
 
 private:
+    struct OrderRecord {
+        QString symbol;
+        OrderSide side = OrderSide::Buy;
+        double price = 0.0;
+        double quantityNotional = 0.0;
+        qint64 createdMs = 0;
+    };
     struct Context {
         ConnectionStore::Profile profile{ConnectionStore::Profile::MexcSpot};
         MexcCredentials credentials;
@@ -74,10 +86,14 @@ private:
         QTimer keepAliveTimer;
         QTimer reconnectTimer;
         QTimer wsPingTimer;
+        QTimer openOrdersTimer;
         QString listenKey;
         bool closingSocket{false};
         bool hasSubscribed{false};
+        bool openOrdersPending{false};
+        QSet<QString> trackedSymbols;
         QHash<QString, TradePosition> positions;
+        QHash<QString, OrderRecord> activeOrders;
     };
 
     Context &ensureContext(ConnectionStore::Profile profile) const;
@@ -112,9 +128,12 @@ private:
     void sendListenKeyKeepAlive(Context &ctx);
     void resetConnection(Context &ctx, const QString &reason);
     void scheduleReconnect(Context &ctx);
+    void fetchOpenOrders(Context &ctx);
     void processPrivateDeal(Context &ctx, const QByteArray &body, const QString &symbol);
     void processPrivateOrder(Context &ctx, const QByteArray &body, const QString &symbol);
     void processPrivateAccount(Context &ctx, const QByteArray &body);
+    void emitLocalOrderSnapshot(Context &ctx, const QString &symbol);
+    void clearLocalOrderSnapshots(Context &ctx);
 
     Context *contextForProfile(ConnectionStore::Profile profile) const;
 

@@ -95,12 +95,20 @@ private slots:
     void handlePositionChanged(const QString &accountName,
                                const QString &symbol,
                                const TradePosition &position);
+    void handleLocalOrdersUpdated(const QString &accountName,
+                                  const QString &symbol,
+                                  const QVector<DomWidget::LocalOrderMarker> &markers);
     void applyNotionalPreset(int presetIndex);
     void startNotionalEdit(QWidget *columnContainer, int presetIndex);
     void commitNotionalEdit(QWidget *columnContainer, bool apply);
     void toggleAlertsPanel();
 
 private:
+    struct ManualOrder {
+        DomWidget::LocalOrderMarker marker;
+        bool synced = false;
+    };
+
     struct DomColumn {
         QWidget *container = nullptr;
         QFrame *header = nullptr;
@@ -124,6 +132,8 @@ private:
         int editingNotionalIndex = -1;
         std::array<double, 5> notionalValues{};
         QVector<DomWidget::LocalOrderMarker> localOrders;
+        QVector<DomWidget::LocalOrderMarker> remoteOrders;
+        QVector<ManualOrder> manualOrders;
         int tickCompression = 1;
         QToolButton *compressionButton = nullptr;
         QString accountName;
@@ -196,6 +206,9 @@ private:
                                 const QString &symbol,
                                 OrderSide side,
                                 double price);
+    void refreshColumnMarkers(DomColumn &col);
+    bool containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker> &markers,
+                               const DomWidget::LocalOrderMarker &candidate) const;
     enum class SymbolSource { Mexc, UzxSpot, UzxSwap };
     void fetchSymbolLibrary();
     void fetchSymbolLibrary(SymbolSource source, SymbolPickerDialog *dlg = nullptr);
