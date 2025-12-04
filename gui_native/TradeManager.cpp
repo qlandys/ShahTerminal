@@ -596,6 +596,13 @@ void TradeManager::placeLimitOrder(const QString &symbol,
         return;
     }
 
+    emit logMessage(QStringLiteral("%1 Placing limit order: %2 %3 @ %4 qty=%5")
+                        .arg(contextTag(ctx.accountName))
+                        .arg(sym)
+                        .arg(side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
+                        .arg(QString::number(price, 'f', 6))
+                        .arg(QString::number(quantity, 'f', 6)));
+
     if (profile == ConnectionStore::Profile::UzxSwap
         || profile == ConnectionStore::Profile::UzxSpot) {
         const bool isSwap = (profile == ConnectionStore::Profile::UzxSwap);
@@ -611,6 +618,8 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                        side == OrderSide::Buy ? QStringLiteral("LG") : QStringLiteral("SH"));
         payload.insert(QStringLiteral("order_buy_or_sell"), side == OrderSide::Buy ? 1 : 2);
         const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+        emit logMessage(QStringLiteral("%1 UZX REST body: %2")
+                            .arg(contextTag(ctx.accountName), QString::fromUtf8(body)));
         const QString path = isSwap ? QStringLiteral("/v2/trade/swap/order")
                                     : QStringLiteral("/v2/trade/spot/order");
         QNetworkRequest req = makeUzxRequest(path, body, QStringLiteral("POST"), ctx);
@@ -634,6 +643,33 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                         emit orderFailed(ctxPtr->accountName, sym, msg);
                         emit logMessage(QStringLiteral("%1 UZX order error: %2")
                                             .arg(contextTag(ctxPtr->accountName), msg));
+                        return;
+                    }
+                    const QString resp = QString::fromUtf8(raw);
+                    emit logMessage(QStringLiteral("%1 UZX order response: %2")
+                                        .arg(contextTag(ctxPtr->accountName),
+                                             resp.isEmpty() ? QStringLiteral("<empty>") : resp));
+                    bool accepted = true;
+                    QJsonDocument uzxDoc = QJsonDocument::fromJson(raw);
+                    if (!uzxDoc.isNull() && uzxDoc.isObject()) {
+                        const QJsonObject obj = uzxDoc.object();
+                        const int code = obj.value(QStringLiteral("code")).toInt(0);
+                        if (code != 0) {
+                            const QString msg = obj.value(QStringLiteral("msg"))
+                                                    .toString(QStringLiteral("request error"));
+                            emit orderFailed(ctxPtr->accountName, sym, msg);
+                            emit logMessage(QStringLiteral("%1 UZX order rejected: %2 (code %3)")
+                                                .arg(contextTag(ctxPtr->accountName))
+                                                .arg(msg)
+                                                .arg(code));
+                            accepted = false;
+                        }
+                    }
+                    if (!uzxDoc.isObject() && !resp.trimmed().isEmpty()) {
+                        emit logMessage(QStringLiteral("%1 UZX response not JSON, assuming success")
+                                            .arg(contextTag(ctxPtr->accountName)));
+                    }
+                    if (!accepted) {
                         return;
                     }
                     emit orderPlaced(ctxPtr->accountName, sym, side, price, quantity);
@@ -689,6 +725,10 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                                         .arg(contextTag(ctxPtr->accountName), msg));
                     return;
                 }
+                emit logMessage(QStringLiteral("%1 MEXC order response: %2")
+                                    .arg(contextTag(ctxPtr->accountName),
+                                         raw.isEmpty() ? QStringLiteral("<empty>")
+                                                       : QString::fromUtf8(raw)));
                 const QJsonDocument doc = QJsonDocument::fromJson(raw);
                 if (doc.isNull() || !doc.isObject()) {
                     emit orderFailed(ctxPtr->accountName, sym, tr("Invalid response"));
@@ -727,6 +767,8 @@ void TradeManager::cancelAllOrders(const QString &symbol, const QString &account
         emit orderFailed(ctx.accountName, sym, tr("Connect to the exchange first"));
         return;
     }
+    emit logMessage(QStringLiteral("%1 Cancel-all requested for %2")
+                        .arg(contextTag(ctx.accountName), sym));
     if (profile == ConnectionStore::Profile::UzxSpot
         || profile == ConnectionStore::Profile::UzxSwap) {
         emit orderFailed(ctx.accountName, sym, tr("Cancel-all not implemented for UZX"));
@@ -764,8 +806,11 @@ void TradeManager::cancelAllOrders(const QString &symbol, const QString &account
                                 .arg(contextTag(ctxPtr->accountName), msg));
             return;
         }
-        emit logMessage(QStringLiteral("%1 Cancel all sent for %2")
-                            .arg(contextTag(ctxPtr->accountName), sym));
+        emit logMessage(QStringLiteral("%1 Cancel all sent for %2 (response: %3)")
+                            .arg(contextTag(ctxPtr->accountName),
+                                 sym,
+                                 raw.isEmpty() ? QStringLiteral("<empty>")
+                                               : QString::fromUtf8(raw)));
     });
 }
 void TradeManager::handleOrderFill(Context &ctx,
@@ -925,8 +970,8 @@ void TradeManager::requestListenKey(Context &ctx)
                                 .arg(contextTag(ctxPtr->accountName), QString::fromUtf8(raw)));
             return;
         }
-        emit logMessage(QStringLiteral("%1 Received listen key, opening private WS...")
-                            .arg(contextTag(ctxPtr->accountName)));
+        emit logMessage(QStringLiteral("%1 Received listen key %2, opening private WS...")
+                            .arg(contextTag(ctxPtr->accountName), listenKey));
         initializeWebSocket(*ctxPtr, listenKey);
     });
 }

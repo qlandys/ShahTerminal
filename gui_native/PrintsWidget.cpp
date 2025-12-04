@@ -191,7 +191,6 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
     }
 
     const int count = m_items.size();
-    if (count == 0) return;
 
     // Map a print to the y coordinate: prefer its rowHint, else fallback to nearest price.
     auto itemToY = [&](const PrintItem &item, int *outRowIdx = nullptr) -> int {
@@ -212,6 +211,7 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
         return rowIdx * m_rowHeight + (m_rowHeight / 2) - 1;
     };
 
+    if (count > 0) {
     // Lay prints left-to-right in time: older on the left, newest on the right.
     const int padding = 6;
     const int slotCount = std::max(6, w / 24);
@@ -270,6 +270,8 @@ void PrintsWidget::paintEvent(QPaintEvent *event)
         p.setFont(textFont);
         p.drawText(circleRect, Qt::AlignCenter, text);
         p.setFont(boldFont);
+    }
+
     }
 
         // Local order markers hugging правый край (к DOM), агрегируя объём на тик.
