@@ -40,19 +40,32 @@ QString profileTitle(const QString &id)
     if (id == QStringLiteral("mexcFutures")) {
         return QObject::tr("MEXC Futures");
     }
+    if (id == QStringLiteral("uzxSwap")) {
+        return QObject::tr("UZX Swap");
+    }
     return QObject::tr("MEXC Spot");
 }
 
 ConnectionStore::Profile profileFromId(const QString &id)
 {
-    return id == QStringLiteral("mexcFutures") ? ConnectionStore::Profile::MexcFutures
-                                               : ConnectionStore::Profile::MexcSpot;
+    if (id == QStringLiteral("mexcFutures")) {
+        return ConnectionStore::Profile::MexcFutures;
+    }
+    if (id == QStringLiteral("uzxSwap")) {
+        return ConnectionStore::Profile::UzxSwap;
+    }
+    return ConnectionStore::Profile::MexcSpot;
 }
 
 QString defaultColorForId(const QString &id)
 {
-    return id == QStringLiteral("mexcFutures") ? QStringLiteral("#f5b642")
-                                               : QStringLiteral("#4c9fff");
+    if (id == QStringLiteral("mexcFutures")) {
+        return QStringLiteral("#f5b642");
+    }
+    if (id == QStringLiteral("uzxSwap")) {
+        return QStringLiteral("#ff7f50");
+    }
+    return QStringLiteral("#4c9fff");
 }
 
 QString badgeStyle(const QString &color)
@@ -106,6 +119,7 @@ ConnectionsWindow::ConnectionsWindow(ConnectionStore *store, TradeManager *manag
     auto *menu = new QMenu(addButton);
     menu->addAction(tr("MEXC Spot"), this, [this]() { ensureCard(QStringLiteral("mexcSpot")); });
     menu->addAction(tr("MEXC Futures"), this, [this]() { ensureCard(QStringLiteral("mexcFutures")); });
+    menu->addAction(tr("UZX Swap"), this, [this]() { ensureCard(QStringLiteral("uzxSwap")); });
     addButton->setMenu(menu);
     header->addWidget(addButton);
     layout->addLayout(header);
@@ -126,6 +140,7 @@ ConnectionsWindow::ConnectionsWindow(ConnectionStore *store, TradeManager *manag
 
     ensureCard(QStringLiteral("mexcSpot"));
     ensureCard(QStringLiteral("mexcFutures"));
+    ensureCard(QStringLiteral("uzxSwap"));
 
     if (m_manager) {
         connect(m_manager,
@@ -207,6 +222,8 @@ ConnectionsWindow::CardWidgets *ConnectionsWindow::createCard(const QString &id)
     card->secretEdit = new QLineEdit(card->body);
     card->secretEdit->setPlaceholderText(tr("API secret"));
     card->secretEdit->setEchoMode(QLineEdit::Password);
+    card->passphraseEdit = new QLineEdit(card->body);
+    card->passphraseEdit->setPlaceholderText(tr("Passphrase (UZX)"));
     card->uidEdit = new QLineEdit(card->body);
     card->uidEdit->setPlaceholderText(tr("U_ID (опционально)"));
     card->proxyEdit = new QLineEdit(card->body);
@@ -214,6 +231,7 @@ ConnectionsWindow::CardWidgets *ConnectionsWindow::createCard(const QString &id)
 
     bodyLayout->addWidget(card->apiKeyEdit);
     bodyLayout->addWidget(card->secretEdit);
+    bodyLayout->addWidget(card->passphraseEdit);
     bodyLayout->addWidget(card->uidEdit);
     bodyLayout->addWidget(card->proxyEdit);
 
@@ -268,6 +286,7 @@ ConnectionsWindow::CardWidgets *ConnectionsWindow::createCard(const QString &id)
     connect(card->autoConnectCheck, &QCheckBox::toggled, this, registerPersist);
     connect(card->apiKeyEdit, &QLineEdit::textChanged, this, registerPersist);
     connect(card->secretEdit, &QLineEdit::textChanged, this, registerPersist);
+    connect(card->passphraseEdit, &QLineEdit::textChanged, this, registerPersist);
     connect(card->uidEdit, &QLineEdit::textChanged, this, registerPersist);
     connect(card->proxyEdit, &QLineEdit::textChanged, this, registerPersist);
 
@@ -295,6 +314,7 @@ void ConnectionsWindow::refreshUi()
         }
         card->apiKeyEdit->setText(creds.apiKey);
         card->secretEdit->setText(creds.saveSecret ? creds.secretKey : QString());
+        card->passphraseEdit->setText(creds.passphrase);
         card->uidEdit->setText(creds.uid);
         card->proxyEdit->setText(creds.proxy);
         card->saveSecretCheck->setChecked(creds.saveSecret);
@@ -343,6 +363,9 @@ void ConnectionsWindow::handleConnectClicked(const QString &id)
         return;
     }
     MexcCredentials creds = collectCredentials(*card);
+    if (m_manager) {
+        m_manager->setProfile(profileFromId(id));
+    }
     if (m_store) {
         m_store->saveMexcCredentials(creds, profileFromId(id));
     }
@@ -401,6 +424,7 @@ MexcCredentials ConnectionsWindow::collectCredentials(const CardWidgets &card) c
     MexcCredentials creds;
     creds.apiKey = card.apiKeyEdit->text().trimmed();
     creds.secretKey = card.secretEdit->text().trimmed();
+    creds.passphrase = card.passphraseEdit ? card.passphraseEdit->text().trimmed() : QString();
     creds.uid = card.uidEdit->text().trimmed();
     creds.proxy = card.proxyEdit->text().trimmed();
     creds.colorHex = card.color.isValid() ? card.color.name(QColor::HexRgb) : defaultColorForId(card.id);
@@ -446,6 +470,9 @@ void ConnectionsWindow::clearCard(CardWidgets *card)
     if (!card) return;
     card->apiKeyEdit->clear();
     card->secretEdit->clear();
+    if (card->passphraseEdit) {
+        card->passphraseEdit->clear();
+    }
     card->uidEdit->clear();
     card->proxyEdit->clear();
     card->saveSecretCheck->setChecked(false);

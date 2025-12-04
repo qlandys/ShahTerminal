@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TradeTypes.h"
+#include "ConnectionStore.h"
 
 #include <QObject>
 #include <QAbstractSocket>
@@ -28,6 +29,8 @@ public:
     void setCredentials(const MexcCredentials &creds);
     MexcCredentials credentials() const;
     ConnectionState state() const;
+    void setProfile(ConnectionStore::Profile profile);
+    ConnectionStore::Profile profile() const;
 
     void connectToExchange();
     void disconnect();
@@ -57,16 +60,24 @@ private slots:
 private:
     void setState(ConnectionState state, const QString &message = QString());
     QByteArray signPayload(const QUrlQuery &query) const;
+    QByteArray signUzxPayload(const QByteArray &body,
+                              const QString &method,
+                              const QString &path) const;
     QNetworkRequest makePrivateRequest(const QString &path,
                                        const QUrlQuery &query,
                                        const QByteArray &contentType = QByteArray()) const;
+    QNetworkRequest makeUzxRequest(const QString &path,
+                                   const QByteArray &body,
+                                   const QString &method = QStringLiteral("POST")) const;
     void handleOrderFill(const QString &symbol, OrderSide side, double price, double quantity);
     void emitPositionChanged(const QString &symbol);
     bool ensureCredentials() const;
     void requestListenKey();
     void initializeWebSocket(const QString &listenKey);
+    void initializeUzxWebSocket();
     void closeWebSocket();
     void subscribePrivateChannels();
+    void subscribeUzxPrivate();
     void sendListenKeyKeepAlive();
     void resetConnection(const QString &reason);
     void scheduleReconnect();
@@ -77,8 +88,10 @@ private:
     QNetworkAccessManager m_network;
     MexcCredentials m_credentials;
     ConnectionState m_state = ConnectionState::Disconnected;
+    ConnectionStore::Profile m_profile = ConnectionStore::Profile::MexcSpot;
     QHash<QString, TradePosition> m_positions;
     const QString m_baseUrl = QStringLiteral("https://api.mexc.com");
+    const QString m_uzxBaseUrl = QStringLiteral("https://api-v2.uzx.com");
     QWebSocket m_privateSocket;
     QTimer m_keepAliveTimer;
     QTimer m_reconnectTimer;

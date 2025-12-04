@@ -4268,6 +4268,7 @@ SymbolPickerDialog *MainWindow::createSymbolPicker(const QString &title,
     };
     ensureAccount(QStringLiteral("MEXC Spot"), QColor("#4c9fff"));
     ensureAccount(QStringLiteral("MEXC Futures"), QColor("#f5b642"));
+    ensureAccount(QStringLiteral("UZX Swap"), QColor("#ff7f50"));
     dlg->setAccounts(accounts);
     dlg->setCurrentSymbol(currentSymbol);
     dlg->setCurrentAccount(currentAccount.isEmpty() ? QStringLiteral("MEXC Spot") : currentAccount);
@@ -4343,6 +4344,9 @@ void MainWindow::refreshAccountColors()
     insertProfile(ConnectionStore::Profile::MexcFutures,
                   QStringLiteral("MEXC Futures"),
                   QStringLiteral("#f5b642"));
+    insertProfile(ConnectionStore::Profile::UzxSwap,
+                  QStringLiteral("UZX Swap"),
+                  QStringLiteral("#ff7f50"));
     applyAccountColorsToColumns();
 }
 
@@ -4353,6 +4357,9 @@ QColor MainWindow::accountColorFor(const QString &accountName) const
         if (it.key().trimmed().toLower() == nameLower) {
             return it.value();
         }
+    }
+    if (nameLower.contains(QStringLiteral("uzx"))) {
+        return QColor("#ff7f50");
     }
     if (nameLower.contains(QStringLiteral("future"))) {
         return QColor("#f5b642");

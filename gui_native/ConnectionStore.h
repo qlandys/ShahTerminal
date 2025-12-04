@@ -9,7 +9,8 @@ class ConnectionStore : public QObject {
 public:
     enum class Profile {
         MexcSpot,
-        MexcFutures
+        MexcFutures,
+        UzxSwap
     };
 
     explicit ConnectionStore(QObject *parent = nullptr);

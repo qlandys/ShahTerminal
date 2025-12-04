@@ -11,6 +11,7 @@ enum class OrderSide {
 struct MexcCredentials {
     QString apiKey;
     QString secretKey;
+    QString passphrase;
     QString uid;
     QString proxy;
     QString colorHex;

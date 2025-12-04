@@ -175,4 +175,5 @@ C:/Users/Babos/ShahProjects/ShahTerminal/build/shah_gui_autogen/include_Release/
   C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsocket.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsocketprotocol.h \
   C:/Qt/6.10.1/msvc2022_64/include/QtWebSockets/qwebsockets_global.h \
+  C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/ConnectionStore.h \
   C:/Users/Babos/ShahProjects/ShahTerminal/gui_native/TradeTypes.h

@@ -36,6 +36,7 @@ private:
         QLabel *statusBadge = nullptr;
         QLineEdit *apiKeyEdit = nullptr;
         QLineEdit *secretEdit = nullptr;
+        QLineEdit *passphraseEdit = nullptr;
         QLineEdit *uidEdit = nullptr;
         QLineEdit *proxyEdit = nullptr;
         QCheckBox *saveSecretCheck = nullptr;

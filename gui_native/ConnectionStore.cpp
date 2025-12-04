@@ -28,6 +28,8 @@ ConnectionStore::ConnectionStore(QObject *parent)
 QString ConnectionStore::profileKey(Profile profile) const
 {
     switch (profile) {
+    case Profile::UzxSwap:
+        return QStringLiteral("uzxSwap");
     case Profile::MexcFutures:
         return QStringLiteral("mexcFutures");
     case Profile::MexcSpot:
@@ -68,6 +70,7 @@ MexcCredentials ConnectionStore::loadMexcCredentials(Profile profile) const
     MexcCredentials creds;
     creds.apiKey = mexcObj.value(QStringLiteral("apiKey")).toString();
     creds.secretKey = mexcObj.value(QStringLiteral("secretKey")).toString();
+    creds.passphrase = mexcObj.value(QStringLiteral("passphrase")).toString();
     creds.uid = mexcObj.value(QStringLiteral("uid")).toString();
     creds.proxy = mexcObj.value(QStringLiteral("proxy")).toString();
     creds.colorHex = mexcObj.value(QStringLiteral("color")).toString();
@@ -77,10 +80,16 @@ MexcCredentials ConnectionStore::loadMexcCredentials(Profile profile) const
     creds.autoConnect = mexcObj.value(QStringLiteral("autoConnect")).toBool(true);
     if (!creds.saveSecret) {
         creds.secretKey.clear();
+        creds.passphrase.clear();
     }
     if (creds.colorHex.isEmpty()) {
-        creds.colorHex = (profile == Profile::MexcFutures) ? QStringLiteral("#f5b642")
-                                                           : QStringLiteral("#4c9fff");
+        if (profile == Profile::MexcFutures) {
+            creds.colorHex = QStringLiteral("#f5b642");
+        } else if (profile == Profile::UzxSwap) {
+            creds.colorHex = QStringLiteral("#ff7f50");
+        } else {
+            creds.colorHex = QStringLiteral("#4c9fff");
+        }
     }
     return creds;
 }
@@ -103,6 +112,11 @@ void ConnectionStore::saveMexcCredentials(const MexcCredentials &creds, Profile 
     mexcObj.insert(QStringLiteral("proxy"), creds.proxy);
     mexcObj.insert(QStringLiteral("color"), creds.colorHex);
     mexcObj.insert(QStringLiteral("label"), creds.label);
+    if (creds.saveSecret && !creds.passphrase.isEmpty()) {
+        mexcObj.insert(QStringLiteral("passphrase"), creds.passphrase);
+    } else {
+        mexcObj.remove(QStringLiteral("passphrase"));
+    }
     mexcObj.insert(QStringLiteral("saveSecret"), creds.saveSecret);
     mexcObj.insert(QStringLiteral("viewOnly"), creds.viewOnly);
     mexcObj.insert(QStringLiteral("autoConnect"), creds.autoConnect);
