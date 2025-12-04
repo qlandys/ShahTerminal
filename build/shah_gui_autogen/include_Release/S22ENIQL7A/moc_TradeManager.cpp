@@ -55,6 +55,7 @@ template <> constexpr inline auto TradeManager::qt_create_metaobjectdata<qt_meta
         "side",
         "price",
         "quantity",
+        "orderId",
         "orderCanceled",
         "orderFailed",
         "positionChanged",
@@ -77,40 +78,41 @@ template <> constexpr inline auto TradeManager::qt_create_metaobjectdata<qt_meta
             { 0x80000000 | 3, 4 }, { 0x80000000 | 5, 6 }, { QMetaType::QString, 7 },
         }}),
         // Signal 'orderPlaced'
-        QtMocHelpers::SignalData<void(const QString &, const QString &, OrderSide, double, double)>(8, 2, QMC::AccessPublic, QMetaType::Void, {{
+        QtMocHelpers::SignalData<void(const QString &, const QString &, OrderSide, double, double, const QString &)>(8, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 11, 12 }, { QMetaType::Double, 13 },
-            { QMetaType::Double, 14 },
+            { QMetaType::Double, 14 }, { QMetaType::QString, 15 },
         }}),
         // Signal 'orderCanceled'
-        QtMocHelpers::SignalData<void(const QString &, const QString &, OrderSide, double)>(15, 2, QMC::AccessPublic, QMetaType::Void, {{
+        QtMocHelpers::SignalData<void(const QString &, const QString &, OrderSide, double, const QString &)>(16, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 11, 12 }, { QMetaType::Double, 13 },
+            { QMetaType::QString, 15 },
         }}),
         // Signal 'orderFailed'
-        QtMocHelpers::SignalData<void(const QString &, const QString &, const QString &)>(16, 2, QMC::AccessPublic, QMetaType::Void, {{
+        QtMocHelpers::SignalData<void(const QString &, const QString &, const QString &)>(17, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { QMetaType::QString, 7 },
         }}),
         // Signal 'positionChanged'
-        QtMocHelpers::SignalData<void(const QString &, const QString &, const TradePosition &)>(17, 2, QMC::AccessPublic, QMetaType::Void, {{
-            { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 18, 19 },
+        QtMocHelpers::SignalData<void(const QString &, const QString &, const TradePosition &)>(18, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 19, 20 },
         }}),
         // Signal 'logMessage'
-        QtMocHelpers::SignalData<void(const QString &)>(20, 2, QMC::AccessPublic, QMetaType::Void, {{
+        QtMocHelpers::SignalData<void(const QString &)>(21, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::QString, 7 },
         }}),
         // Signal 'localOrdersUpdated'
-        QtMocHelpers::SignalData<void(const QString &, const QString &, const QVector<DomWidget::LocalOrderMarker> &)>(21, 2, QMC::AccessPublic, QMetaType::Void, {{
-            { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 22, 23 },
+        QtMocHelpers::SignalData<void(const QString &, const QString &, const QVector<DomWidget::LocalOrderMarker> &)>(22, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 9 }, { QMetaType::QString, 10 }, { 0x80000000 | 23, 24 },
         }}),
     };
     QtMocHelpers::UintData qt_properties {
     };
     QtMocHelpers::UintData qt_enums {
         // enum 'ConnectionState'
-        QtMocHelpers::EnumData<enum ConnectionState>(24, 24, QMC::EnumIsScoped).add({
-            {   25, ConnectionState::Disconnected },
-            {   26, ConnectionState::Connecting },
-            {   27, ConnectionState::Connected },
-            {   28, ConnectionState::Error },
+        QtMocHelpers::EnumData<enum ConnectionState>(25, 25, QMC::EnumIsScoped).add({
+            {   26, ConnectionState::Disconnected },
+            {   27, ConnectionState::Connecting },
+            {   28, ConnectionState::Connected },
+            {   29, ConnectionState::Error },
         }),
     };
     return QtMocHelpers::metaObjectData<TradeManager, qt_meta_tag_ZN12TradeManagerE_t>(QMC::MetaObjectFlag{}, qt_stringData,
@@ -132,8 +134,8 @@ void TradeManager::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
         case 0: _t->connectionStateChanged((*reinterpret_cast<std::add_pointer_t<ConnectionStore::Profile>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<TradeManager::ConnectionState>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[3]))); break;
-        case 1: _t->orderPlaced((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<OrderSide>>(_a[3])),(*reinterpret_cast<std::add_pointer_t<double>>(_a[4])),(*reinterpret_cast<std::add_pointer_t<double>>(_a[5]))); break;
-        case 2: _t->orderCanceled((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<OrderSide>>(_a[3])),(*reinterpret_cast<std::add_pointer_t<double>>(_a[4]))); break;
+        case 1: _t->orderPlaced((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<OrderSide>>(_a[3])),(*reinterpret_cast<std::add_pointer_t<double>>(_a[4])),(*reinterpret_cast<std::add_pointer_t<double>>(_a[5])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[6]))); break;
+        case 2: _t->orderCanceled((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<OrderSide>>(_a[3])),(*reinterpret_cast<std::add_pointer_t<double>>(_a[4])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[5]))); break;
         case 3: _t->orderFailed((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[3]))); break;
         case 4: _t->positionChanged((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])),(*reinterpret_cast<std::add_pointer_t<QString>>(_a[2])),(*reinterpret_cast<std::add_pointer_t<TradePosition>>(_a[3]))); break;
         case 5: _t->logMessage((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1]))); break;
@@ -156,9 +158,9 @@ void TradeManager::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
     if (_c == QMetaObject::IndexOfMethod) {
         if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(ConnectionStore::Profile , TradeManager::ConnectionState , const QString & )>(_a, &TradeManager::connectionStateChanged, 0))
             return;
-        if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & , const QString & , OrderSide , double , double )>(_a, &TradeManager::orderPlaced, 1))
+        if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & , const QString & , OrderSide , double , double , const QString & )>(_a, &TradeManager::orderPlaced, 1))
             return;
-        if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & , const QString & , OrderSide , double )>(_a, &TradeManager::orderCanceled, 2))
+        if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & , const QString & , OrderSide , double , const QString & )>(_a, &TradeManager::orderCanceled, 2))
             return;
         if (QtMocHelpers::indexOfMethod<void (TradeManager::*)(const QString & , const QString & , const QString & )>(_a, &TradeManager::orderFailed, 3))
             return;
@@ -209,15 +211,15 @@ void TradeManager::connectionStateChanged(ConnectionStore::Profile _t1, TradeMan
 }
 
 // SIGNAL 1
-void TradeManager::orderPlaced(const QString & _t1, const QString & _t2, OrderSide _t3, double _t4, double _t5)
+void TradeManager::orderPlaced(const QString & _t1, const QString & _t2, OrderSide _t3, double _t4, double _t5, const QString & _t6)
 {
-    QMetaObject::activate<void>(this, &staticMetaObject, 1, nullptr, _t1, _t2, _t3, _t4, _t5);
+    QMetaObject::activate<void>(this, &staticMetaObject, 1, nullptr, _t1, _t2, _t3, _t4, _t5, _t6);
 }
 
 // SIGNAL 2
-void TradeManager::orderCanceled(const QString & _t1, const QString & _t2, OrderSide _t3, double _t4)
+void TradeManager::orderCanceled(const QString & _t1, const QString & _t2, OrderSide _t3, double _t4, const QString & _t5)
 {
-    QMetaObject::activate<void>(this, &staticMetaObject, 2, nullptr, _t1, _t2, _t3, _t4);
+    QMetaObject::activate<void>(this, &staticMetaObject, 2, nullptr, _t1, _t2, _t3, _t4, _t5);
 }
 
 // SIGNAL 3

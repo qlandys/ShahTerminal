@@ -107,9 +107,9 @@ private slots:
     void toggleAlertsPanel();
 
 private:
-    struct ManualOrder {
-        DomWidget::LocalOrderMarker marker;
-        bool synced = false;
+    struct MarkerBucket {
+        QHash<QString, DomWidget::LocalOrderMarker> confirmed;
+        QHash<QString, DomWidget::LocalOrderMarker> pending;
     };
 
     struct DomColumn {
@@ -135,8 +135,6 @@ private:
         int editingNotionalIndex = -1;
         std::array<double, 5> notionalValues{};
         QVector<DomWidget::LocalOrderMarker> localOrders;
-        QVector<DomWidget::LocalOrderMarker> remoteOrders;
-        QVector<ManualOrder> manualOrders;
         int tickCompression = 1;
         QToolButton *compressionButton = nullptr;
         QString accountName;
@@ -204,11 +202,11 @@ private:
                              OrderSide side,
                              double price,
                              double quantity,
+                             const QString &orderId,
                              qint64 createdMs);
     void removeLocalOrderMarker(const QString &accountName,
                                 const QString &symbol,
-                                OrderSide side,
-                                double price);
+                                const QString &orderId);
     void refreshColumnMarkers(DomColumn &col);
     void clearColumnLocalMarkers(DomColumn &col);
     void clearSymbolLocalMarkers(const QString &symbolUpper);
@@ -217,8 +215,12 @@ private:
     void clearPendingCancelForSymbol(const QString &symbol);
     void schedulePendingCancelTimer(const QString &symbol);
     void refreshColumnsForSymbol(const QString &symbolUpper);
-    bool containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker> &markers,
-                               const DomWidget::LocalOrderMarker &candidate) const;
+    QVector<DomWidget::LocalOrderMarker> aggregateMarkersForDisplay(const MarkerBucket &bucket,
+                                                                    bool suppressRemote) const;
+    void enforcePendingLimit(MarkerBucket &bucket);
+    void pruneExpiredPending(MarkerBucket &bucket) const;
+    void cancelDelayedMarkers(const QString &symbolUpper, const QString &accountKey = QString());
+    void removeMarkerDelayTimer(const QString &timerKey, QTimer *timer);
     enum class SymbolSource { Mexc, UzxSpot, UzxSwap };
     void fetchSymbolLibrary();
     void fetchSymbolLibrary(SymbolSource source, SymbolPickerDialog *dlg = nullptr);
@@ -270,6 +272,8 @@ private:
     QToolButton *m_addMenuButton;
     QSet<QString> m_pendingCancelSymbols;
     QHash<QString, QTimer *> m_pendingCancelTimers;
+    QHash<QString, QHash<QString, MarkerBucket>> m_markerBuckets;
+    QHash<QString, QPointer<QTimer>> m_markerDelayTimers;
     QLineEdit *m_settingsSearchEdit;
     QCompleter *m_settingsCompleter = nullptr;
     QLabel *m_connectionIndicator;

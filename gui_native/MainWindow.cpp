@@ -71,6 +71,7 @@
 #include <QStandardItemModel>
 #include <QComboBox>
 #include <QPointer>
+#include <QPair>
 #include <cmath>
 #include <algorithm>
 #include <QListWidget>
@@ -78,6 +79,47 @@
 
 namespace {
 constexpr int kPendingCancelRetryMs = 250;
+constexpr int kMaxPendingMarkersPerBucket = 20;
+constexpr double kMarkerPriceTolerance = 1e-8;
+constexpr int kLocalMarkerDelayMs = 120;
+constexpr qint64 kPendingMarkerTimeoutMs = 1500;
+
+QString normalizedSymbolKey(const QString &symbol)
+{
+    return symbol.trimmed().toUpper();
+}
+
+QString normalizedAccountLabel(const QString &account)
+{
+    const QString trimmed = account.trimmed();
+    return trimmed.isEmpty() ? QStringLiteral("MEXC Spot") : trimmed;
+}
+
+QString normalizedAccountKey(const QString &account)
+{
+    return normalizedAccountLabel(account).toLower();
+}
+
+QString markerTimerKey(const QString &symbolUpper,
+                       const QString &accountKey,
+                       const QString &orderId = QString())
+{
+    QString key = symbolUpper + QLatin1Char('|') + accountKey;
+    if (!orderId.isEmpty()) {
+        key += QLatin1Char('|') + orderId;
+    }
+    return key;
+}
+
+QString markerTimerPrefix(const QString &symbolUpper, const QString &accountKey = QString())
+{
+    QString prefix = symbolUpper + QLatin1Char('|');
+    if (!accountKey.isEmpty()) {
+        prefix += accountKey + QLatin1Char('|');
+    }
+    return prefix;
+}
+
 }
 #if __has_include(<QMediaPlayer>)
 #include <QMediaPlayer>
@@ -437,13 +479,35 @@ MainWindow::MainWindow(const QString &backendPath,
         connect(m_tradeManager,
                 &TradeManager::orderPlaced,
                 this,
-                [this](const QString &account, const QString &sym, OrderSide side, double price, double qty) {
-                    addLocalOrderMarker(account,
-                                        sym,
-                                        side,
-                                        price,
-                                        qty,
-                                        QDateTime::currentMSecsSinceEpoch());
+                [this](const QString &account,
+                       const QString &sym,
+                       OrderSide side,
+                       double price,
+                       double qty,
+                       const QString &orderId) {
+                    const QString symUpper = normalizedSymbolKey(sym);
+                    const QString accountKey = normalizedAccountKey(account);
+                    if (symUpper.isEmpty() || orderId.isEmpty()) {
+                        return;
+                    }
+                    const QString timerKey = markerTimerKey(symUpper, accountKey, orderId);
+                    auto *delayTimer = new QTimer(this);
+                    delayTimer->setSingleShot(true);
+                    connect(delayTimer,
+                            &QTimer::timeout,
+                            this,
+                            [this, delayTimer, timerKey, account, symUpper, side, price, qty, orderId]() {
+                                removeMarkerDelayTimer(timerKey, delayTimer);
+                                addLocalOrderMarker(account,
+                                                    symUpper,
+                                                    side,
+                                                    price,
+                                                    qty,
+                                                    orderId,
+                                                    QDateTime::currentMSecsSinceEpoch());
+                            });
+                    m_markerDelayTimers.insert(timerKey, delayTimer);
+                    delayTimer->start(kLocalMarkerDelayMs);
                     const QString msg = tr("Order placed: %1 %2 @ %3")
                                             .arg(side == OrderSide::Buy ? QStringLiteral("BUY")
                                                                         : QStringLiteral("SELL"))
@@ -463,8 +527,14 @@ MainWindow::MainWindow(const QString &backendPath,
         connect(m_tradeManager,
                 &TradeManager::orderCanceled,
                 this,
-                [this](const QString &account, const QString &sym, OrderSide side, double price) {
-                    removeLocalOrderMarker(account, sym, side, price);
+                [this](const QString &account,
+                       const QString &sym,
+                       OrderSide side,
+                       double price,
+                       const QString &orderId) {
+                    Q_UNUSED(side);
+                    Q_UNUSED(price);
+                    removeLocalOrderMarker(account, sym, orderId);
                 });
         connect(m_tradeManager,
                 &TradeManager::localOrdersUpdated,
@@ -2446,6 +2516,7 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
         return;
     }
     const OrderSide side = (button == Qt::LeftButton) ? OrderSide::Buy : OrderSide::Sell;
+    clearPendingCancelForSymbol(column->symbol);
     m_tradeManager->placeLimitOrder(column->symbol, column->accountName, price, quantity, side);
     statusBar()->showMessage(
         tr("Submitting %1 %2 @ %3")
@@ -4175,95 +4246,101 @@ void MainWindow::addLocalOrderMarker(const QString &accountName,
                                      OrderSide side,
                                      double price,
                                      double quantity,
+                                     const QString &orderId,
                                      qint64 createdMs)
 {
-    const qint64 ts = createdMs > 0 ? createdMs : QDateTime::currentMSecsSinceEpoch();
-    const QString symUpper = symbol.toUpper();
-    const QString accountLower = accountName.trimmed().toLower();
-    const int maxMarkers = 20;
-    for (auto &tab : m_tabs) {
-        for (auto &col : tab.columnsData) {
-            if (col.symbol.toUpper() != symUpper) {
-                continue;
-            }
-            if (!accountLower.isEmpty()
-                && col.accountName.trimmed().toLower() != accountLower) {
-                continue;
-            }
-            DomWidget::LocalOrderMarker base;
-            base.price = price;
-            base.quantity = std::abs(quantity * price);
-            base.side = side;
-            base.createdMs = ts;
-            MainWindow::ManualOrder entry;
-            entry.marker = base;
-            entry.synced = false;
-            col.manualOrders.append(entry);
-            if (col.manualOrders.size() > maxMarkers) {
-                col.manualOrders.remove(0, col.manualOrders.size() - maxMarkers);
-            }
-            refreshColumnMarkers(col);
-        }
+    if (orderId.isEmpty()) {
+        return;
     }
-    const QString accountDisplay = accountName.trimmed().isEmpty() ? QStringLiteral("MEXC Spot") : accountName.trimmed();
+    const qint64 ts = createdMs > 0 ? createdMs : QDateTime::currentMSecsSinceEpoch();
+    const QString symUpper = normalizedSymbolKey(symbol);
+    if (symUpper.isEmpty()) {
+        return;
+    }
+    if (m_pendingCancelSymbols.contains(symUpper)) {
+        logMarkerEvent(QStringLiteral("[Marker skip] pending cancel sym=%1 acc=%2 id=%3")
+                           .arg(symUpper)
+                           .arg(accountName)
+                           .arg(orderId));
+        return;
+    }
+    const QString accountDisplay = normalizedAccountLabel(accountName);
+    const QString accountKey = normalizedAccountKey(accountDisplay);
+    DomWidget::LocalOrderMarker marker;
+    marker.price = price;
+    marker.quantity = std::abs(quantity * price);
+    marker.side = side;
+    marker.createdMs = ts;
+    marker.orderId = orderId;
+    MarkerBucket &bucket = m_markerBuckets[symUpper][accountKey];
+    bucket.pending.insert(orderId, marker);
+    enforcePendingLimit(bucket);
+    refreshColumnsForSymbol(symUpper);
     const QString sideName = side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL");
     const double baseQty = std::abs(quantity);
     const double notional = std::abs(quantity * price);
-    logMarkerEvent(QStringLiteral("[Marker add] acc=%1 sym=%2 %3 @ %4 qty=%5 notional=%6")
-                       .arg(accountDisplay)
-                       .arg(symUpper)
-                       .arg(sideName)
-                       .arg(price, 0, 'f', 8)
-                       .arg(baseQty, 0, 'f', 8)
-                       .arg(notional, 0, 'f', 8));
+    logMarkerEvent(QStringLiteral("[Marker add] acc=%1 sym=%2 id=%3 %4 @ %5 qty=%6 notional=%7")
+                        .arg(accountDisplay)
+                        .arg(symUpper)
+                        .arg(orderId)
+                        .arg(sideName)
+                        .arg(price, 0, 'f', 8)
+                        .arg(baseQty, 0, 'f', 8)
+                        .arg(notional, 0, 'f', 8));
 }
 
 void MainWindow::removeLocalOrderMarker(const QString &accountName,
                                         const QString &symbol,
-                                        OrderSide side,
-                                        double price)
+                                        const QString &orderId)
 {
-    const QString symUpper = symbol.toUpper();
-    const QString accountLower = accountName.trimmed().toLower();
-    const double tol = 1e-8;
-    const QString accountDisplay = accountName.trimmed().isEmpty() ? QStringLiteral("MEXC Spot") : accountName.trimmed();
-    const QString sideName = side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL");
-    logMarkerEvent(QStringLiteral("[Marker remove] acc=%1 sym=%2 %3 @ %4")
-                       .arg(accountDisplay)
-                       .arg(symUpper)
-                       .arg(sideName)
-                       .arg(price, 0, 'f', 8));
-    for (auto &tab : m_tabs) {
-        for (auto &col : tab.columnsData) {
-            if (col.symbol.toUpper() != symUpper) continue;
-            if (!accountLower.isEmpty()
-                && col.accountName.trimmed().toLower() != accountLower) {
-                continue;
+    const QString symUpper = normalizedSymbolKey(symbol);
+    if (symUpper.isEmpty() || orderId.isEmpty()) {
+        return;
+    }
+    const QString accountDisplay = normalizedAccountLabel(accountName);
+    const QString accountKey = normalizedAccountKey(accountDisplay);
+    DomWidget::LocalOrderMarker removed;
+    bool touched = false;
+    auto symIt = m_markerBuckets.find(symUpper);
+    if (symIt != m_markerBuckets.end()) {
+        auto &perAccount = symIt.value();
+        auto accIt = perAccount.find(accountKey);
+        if (accIt != perAccount.end()) {
+            auto &bucket = accIt.value();
+            if (bucket.pending.contains(orderId)) {
+                removed = bucket.pending.value(orderId);
+                bucket.pending.remove(orderId);
+                touched = true;
             }
-            auto matchMarker = [&](const DomWidget::LocalOrderMarker &m) {
-                if (m.side != side) return false;
-                return std::abs(m.price - price) <= tol;
-            };
-            const int beforeLocal = col.localOrders.size();
-            col.localOrders.erase(std::remove_if(col.localOrders.begin(),
-                                                 col.localOrders.end(),
-                                                 matchMarker),
-                                  col.localOrders.end());
-            auto matchManual = [&](const ManualOrder &m) {
-                if (m.marker.side != side) return false;
-                return std::abs(m.marker.price - price) <= tol;
-            };
-            const int beforeManual = col.manualOrders.size();
-            const auto manualIt = std::remove_if(col.manualOrders.begin(),
-                                                 col.manualOrders.end(),
-                                                 matchManual);
-            if (manualIt != col.manualOrders.end()) {
-                col.manualOrders.erase(manualIt, col.manualOrders.end());
+            if (bucket.confirmed.contains(orderId)) {
+                removed = bucket.confirmed.value(orderId);
+                bucket.confirmed.remove(orderId);
+                touched = true;
             }
-            if (col.localOrders.size() != beforeLocal || col.manualOrders.size() != beforeManual) {
-                refreshColumnMarkers(col);
+            if (bucket.pending.isEmpty() && bucket.confirmed.isEmpty()) {
+                perAccount.remove(accountKey);
             }
         }
+        if (perAccount.isEmpty()) {
+            m_markerBuckets.remove(symUpper);
+        }
+    }
+    if (touched) {
+        refreshColumnsForSymbol(symUpper);
+    }
+    const QString sideName = removed.side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL");
+    if (!removed.orderId.isEmpty()) {
+        logMarkerEvent(QStringLiteral("[Marker remove] acc=%1 sym=%2 id=%3 %4 @ %5")
+                           .arg(accountDisplay)
+                           .arg(symUpper)
+                           .arg(removed.orderId)
+                           .arg(sideName)
+                           .arg(removed.price, 0, 'f', 8));
+    } else {
+        logMarkerEvent(QStringLiteral("[Marker remove unknown] acc=%1 sym=%2 id=%3")
+                           .arg(accountDisplay)
+                           .arg(symUpper)
+                           .arg(orderId));
     }
 }
 
@@ -4271,68 +4348,70 @@ void MainWindow::handleLocalOrdersUpdated(const QString &accountName,
                                           const QString &symbol,
                                           const QVector<DomWidget::LocalOrderMarker> &markers)
 {
-    const QString normalizedAccount = accountName.trimmed().isEmpty()
-                                           ? QStringLiteral("MEXC Spot")
-                                           : accountName.trimmed();
-    const QString targetAccount = normalizedAccount.toLower();
-    const QString targetSymbol = symbol.toUpper();
-    for (auto &tab : m_tabs) {
-        for (auto &col : tab.columnsData) {
-            if (!targetSymbol.isEmpty() && col.symbol.toUpper() != targetSymbol) {
-                continue;
+    const QString accountLabel = normalizedAccountLabel(accountName);
+    const QString accountKey = normalizedAccountKey(accountLabel);
+    const QString targetSymbol = normalizedSymbolKey(symbol);
+    if (targetSymbol.isEmpty()) {
+        return;
+    }
+    MarkerBucket &bucket = m_markerBuckets[targetSymbol][accountKey];
+    if (markers.isEmpty()) {
+        bucket.confirmed.clear();
+        bucket.pending.clear();
+    } else {
+        bucket.confirmed.clear();
+        for (auto marker : markers) {
+            if (marker.orderId.isEmpty()) {
+                marker.orderId = QStringLiteral("remote_%1_%2_%3")
+                                     .arg(targetSymbol)
+                                     .arg(marker.price, 0, 'f', 8)
+                                     .arg(marker.createdMs);
             }
-            if (!targetAccount.isEmpty()
-                && !col.accountName.trimmed().isEmpty()
-                && col.accountName.toLower() != targetAccount) {
-                continue;
-            }
-            col.remoteOrders = markers;
-            refreshColumnMarkers(col);
-            if (markers.isEmpty()) {
-                clearPendingCancelForSymbol(targetSymbol);
+            bucket.confirmed.insert(marker.orderId, marker);
+            bucket.pending.remove(marker.orderId);
+        }
+    }
+    pruneExpiredPending(bucket);
+    if (bucket.pending.isEmpty() && bucket.confirmed.isEmpty()) {
+        auto symIt = m_markerBuckets.find(targetSymbol);
+        if (symIt != m_markerBuckets.end()) {
+            symIt.value().remove(accountKey);
+            if (symIt.value().isEmpty()) {
+                m_markerBuckets.erase(symIt);
             }
         }
     }
-}
-
-bool MainWindow::containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker> &markers,
-                                       const DomWidget::LocalOrderMarker &candidate) const
-{
-    constexpr double tol = 1e-8;
-    for (const auto &existing : markers) {
-        if (existing.side == candidate.side && std::abs(existing.price - candidate.price) <= tol) {
-            return true;
-        }
+    refreshColumnsForSymbol(targetSymbol);
+    if (markers.isEmpty()) {
+        clearPendingCancelForSymbol(targetSymbol);
     }
-    return false;
 }
 
 void MainWindow::refreshColumnMarkers(DomColumn &col)
 {
-    const QString normalizedSymbol = col.symbol.toUpper();
+    const QString normalizedSymbol = col.symbol.trimmed().toUpper();
+    if (normalizedSymbol.isEmpty()) {
+        col.localOrders.clear();
+        if (col.dom) {
+            col.dom->setLocalOrders(col.localOrders);
+        }
+        if (col.prints) {
+            QVector<LocalOrderMarker> empty;
+            col.prints->setLocalOrders(empty);
+        }
+        return;
+    }
+    const QString accountKey = normalizedAccountKey(col.accountName);
     const bool suppressRemote = m_pendingCancelSymbols.contains(normalizedSymbol);
-    QVector<DomWidget::LocalOrderMarker> combined = suppressRemote ? QVector<DomWidget::LocalOrderMarker>() : col.remoteOrders;
-    QVector<ManualOrder> updatedManuals;
-    updatedManuals.reserve(col.manualOrders.size());
-    for (auto &manual : col.manualOrders) {
-        const bool remoteHas = containsSimilarMarker(col.remoteOrders, manual.marker);
-        if (remoteHas) {
-            manual.synced = true;
-            if (!containsSimilarMarker(combined, manual.marker)) {
-                combined.push_back(manual.marker);
-            }
-            updatedManuals.push_back(manual);
-        } else if (!manual.synced) {
-            // still waiting for remote ack
-            if (!containsSimilarMarker(combined, manual.marker)) {
-                combined.push_back(manual.marker);
-            }
-            updatedManuals.push_back(manual);
-        } else {
-            // synced but remote gone -> drop marker
+    QVector<DomWidget::LocalOrderMarker> combined;
+    auto symIt = m_markerBuckets.find(normalizedSymbol);
+    if (symIt != m_markerBuckets.end()) {
+        auto accountIt = symIt.value().find(accountKey);
+        if (accountIt != symIt.value().end()) {
+            pruneExpiredPending(accountIt.value());
+            combined = aggregateMarkersForDisplay(accountIt.value(), suppressRemote);
         }
     }
-    col.manualOrders = std::move(updatedManuals);
     col.localOrders = combined;
     if (col.dom) {
         col.dom->setLocalOrders(col.localOrders);
@@ -4352,6 +4431,77 @@ void MainWindow::refreshColumnMarkers(DomColumn &col)
     }
 }
 
+QVector<DomWidget::LocalOrderMarker> MainWindow::aggregateMarkersForDisplay(const MarkerBucket &bucket,
+                                                                            bool suppressRemote) const
+{
+    QVector<DomWidget::LocalOrderMarker> result;
+    if (suppressRemote) {
+        return result;
+    }
+    QHash<QString, DomWidget::LocalOrderMarker> aggregated;
+    auto fold = [&](const QHash<QString, DomWidget::LocalOrderMarker> &source) {
+        for (const auto &marker : source) {
+            if (marker.price <= 0.0 || marker.quantity <= 0.0) {
+                continue;
+            }
+            const QString key =
+                QString::number(static_cast<int>(marker.side)) + QLatin1Char('|')
+                + QString::number(marker.price, 'f', 8);
+            auto it = aggregated.find(key);
+            if (it == aggregated.end()) {
+                aggregated.insert(key, marker);
+            } else {
+                auto &existing = it.value();
+                existing.quantity += marker.quantity;
+                existing.createdMs = std::min(existing.createdMs, marker.createdMs);
+            }
+        }
+    };
+    fold(bucket.confirmed);
+    fold(bucket.pending);
+    result.reserve(aggregated.size());
+    for (const auto &marker : aggregated) {
+        result.push_back(marker);
+    }
+    return result;
+}
+
+void MainWindow::enforcePendingLimit(MarkerBucket &bucket)
+{
+    if (bucket.pending.size() <= kMaxPendingMarkersPerBucket) {
+        return;
+    }
+    QVector<QPair<QString, qint64>> entries;
+    entries.reserve(bucket.pending.size());
+    for (auto it = bucket.pending.cbegin(); it != bucket.pending.cend(); ++it) {
+        entries.push_back(qMakePair(it.key(), it.value().createdMs));
+    }
+    std::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) {
+        return a.second < b.second;
+    });
+    const int excess = bucket.pending.size() - kMaxPendingMarkersPerBucket;
+    for (int i = 0; i < excess && i < entries.size(); ++i) {
+        bucket.pending.remove(entries[i].first);
+    }
+}
+
+void MainWindow::pruneExpiredPending(MarkerBucket &bucket) const
+{
+    if (bucket.pending.isEmpty()) {
+        return;
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QList<QString> expired;
+    for (auto it = bucket.pending.cbegin(); it != bucket.pending.cend(); ++it) {
+        if (now - it.value().createdMs > kPendingMarkerTimeoutMs) {
+            expired.push_back(it.key());
+        }
+    }
+    for (const auto &key : expired) {
+        bucket.pending.remove(key);
+    }
+}
+
 
 void MainWindow::clearColumnLocalMarkers(DomColumn &col)
 {
@@ -4361,9 +4511,14 @@ void MainWindow::clearColumnLocalMarkers(DomColumn &col)
 
 bool MainWindow::clearSymbolLocalMarkersInternal(const QString &symbolUpper, bool markPending)
 {
-    const QString normalized = symbolUpper.trimmed().toUpper();
+    const QString normalized = normalizedSymbolKey(symbolUpper);
     if (normalized.isEmpty()) {
         return false;
+    }
+    cancelDelayedMarkers(normalized);
+    auto symIt = m_markerBuckets.find(normalized);
+    if (symIt != m_markerBuckets.end()) {
+        m_markerBuckets.erase(symIt);
     }
     bool touched = false;
     for (auto &tab : m_tabs) {
@@ -4371,8 +4526,6 @@ bool MainWindow::clearSymbolLocalMarkersInternal(const QString &symbolUpper, boo
             if (col.symbol.toUpper() != normalized) {
                 continue;
             }
-            col.remoteOrders.clear();
-            col.manualOrders.clear();
             touched = true;
         }
     }
@@ -4393,6 +4546,50 @@ void MainWindow::clearSymbolLocalMarkers(const QString &symbolUpper)
     clearSymbolLocalMarkersInternal(symbolUpper, true);
 }
 
+void MainWindow::cancelDelayedMarkers(const QString &symbolUpper, const QString &accountKey)
+{
+    const QString normalized = normalizedSymbolKey(symbolUpper);
+    if (normalized.isEmpty()) {
+        return;
+    }
+    const QString prefix = markerTimerPrefix(normalized, accountKey);
+    QList<QString> removeKeys;
+    for (auto it = m_markerDelayTimers.begin(); it != m_markerDelayTimers.end(); ++it) {
+        if (!it.key().startsWith(prefix)) {
+            continue;
+        }
+        if (it.value()) {
+            it.value()->stop();
+            it.value()->deleteLater();
+        }
+        removeKeys.push_back(it.key());
+    }
+    for (const auto &key : removeKeys) {
+        m_markerDelayTimers.remove(key);
+    }
+}
+
+void MainWindow::removeMarkerDelayTimer(const QString &timerKey, QTimer *timer)
+{
+    auto it = m_markerDelayTimers.find(timerKey);
+    if (it == m_markerDelayTimers.end()) {
+        if (timer) {
+            timer->stop();
+            timer->deleteLater();
+        }
+        return;
+    }
+    QPointer<QTimer> stored = it.value();
+    if (stored && (!timer || stored == timer)) {
+        stored->stop();
+        stored->deleteLater();
+    } else if (timer) {
+        timer->stop();
+        timer->deleteLater();
+    }
+    m_markerDelayTimers.erase(it);
+}
+
 
 void MainWindow::markPendingCancelForSymbol(const QString &symbol)
 {
@@ -4403,6 +4600,7 @@ void MainWindow::markPendingCancelForSymbol(const QString &symbol)
     if (!m_pendingCancelSymbols.contains(normalized)) {
         m_pendingCancelSymbols.insert(normalized);
     }
+    cancelDelayedMarkers(normalized);
     refreshColumnsForSymbol(normalized);
     schedulePendingCancelTimer(normalized);
 }
@@ -4413,6 +4611,20 @@ void MainWindow::clearPendingCancelForSymbol(const QString &symbol)
     const QString normalized = symbol.trimmed().toUpper();
     if (normalized.isEmpty()) {
         return;
+    }
+    auto symbolBuckets = m_markerBuckets.find(normalized);
+    if (symbolBuckets != m_markerBuckets.end()) {
+        bool anyActive = false;
+        for (auto it = symbolBuckets.value().begin(); it != symbolBuckets.value().end(); ++it) {
+            pruneExpiredPending(it.value());
+            if (!it.value().confirmed.isEmpty() || !it.value().pending.isEmpty()) {
+                anyActive = true;
+                break;
+            }
+        }
+        if (anyActive) {
+            return;
+        }
     }
     if (!m_pendingCancelSymbols.remove(normalized)) {
         return;

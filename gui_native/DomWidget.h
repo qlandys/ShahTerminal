@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QString>
 #include "DomTypes.h"
 #include "TradeTypes.h"
 
@@ -39,6 +40,7 @@ public:
         double quantity = 0.0;
         OrderSide side = OrderSide::Buy;
         qint64 createdMs = 0;
+        QString orderId;
     };
 
     explicit DomWidget(QWidget *parent = nullptr);

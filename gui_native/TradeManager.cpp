@@ -672,14 +672,30 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                             accepted = false;
                         }
                     }
+                    QString extractedOrderId;
                     if (!uzxDoc.isObject() && !resp.trimmed().isEmpty()) {
                         emit logMessage(QStringLiteral("%1 UZX response not JSON, assuming success")
                                             .arg(contextTag(ctxPtr->accountName)));
                     }
+                    if (uzxDoc.isObject()) {
+                        const QJsonObject obj = uzxDoc.object();
+                        const QJsonObject dataObj = obj.value(QStringLiteral("data")).toObject();
+                        extractedOrderId = dataObj.value(QStringLiteral("orderId")).toString();
+                        if (extractedOrderId.isEmpty()) {
+                            extractedOrderId = obj.value(QStringLiteral("orderId")).toString();
+                        }
+                        if (extractedOrderId.isEmpty()) {
+                            extractedOrderId = dataObj.value(QStringLiteral("id")).toString();
+                        }
+                    }
+                    if (extractedOrderId.isEmpty()) {
+                        extractedOrderId = QStringLiteral("uzx_%1")
+                                               .arg(QDateTime::currentMSecsSinceEpoch());
+                    }
                     if (!accepted) {
                         return;
                     }
-                    emit orderPlaced(ctxPtr->accountName, sym, side, price, quantity);
+                    emit orderPlaced(ctxPtr->accountName, sym, side, price, quantity, extractedOrderId);
                     emit logMessage(QStringLiteral("%1 UZX order accepted: %2 %3 @ %4")
                                         .arg(contextTag(ctxPtr->accountName))
                                         .arg(side == OrderSide::Buy ? QStringLiteral("BUY")
@@ -751,7 +767,15 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                                         .arg(contextTag(ctxPtr->accountName), msg));
                     return;
                 }
-                emit orderPlaced(ctxPtr->accountName, sym, side, price, quantity);
+                QString orderId = obj.value(QStringLiteral("orderId")).toVariant().toString();
+                if (orderId.isEmpty()) {
+                    orderId = obj.value(QStringLiteral("clientOrderId")).toString();
+                }
+                if (orderId.isEmpty()) {
+                    orderId = QStringLiteral("mexc_%1")
+                                  .arg(QDateTime::currentMSecsSinceEpoch());
+                }
+                emit orderPlaced(ctxPtr->accountName, sym, side, price, quantity, orderId);
                 emit logMessage(QStringLiteral("%1 Order accepted: %2 %3 @ %4")
                                     .arg(contextTag(ctxPtr->accountName))
                                     .arg(side == OrderSide::Buy ? QStringLiteral("BUY")
@@ -1189,6 +1213,7 @@ void TradeManager::fetchOpenOrders(Context &ctx)
             marker.side = side.compare(QStringLiteral("SELL"), Qt::CaseInsensitive) == 0 ? OrderSide::Sell
                                                                                          : OrderSide::Buy;
             marker.createdMs = order.value(QStringLiteral("time")).toVariant().toLongLong();
+            marker.orderId = orderId;
             symbolMap[symbol].push_back(marker);
             newSymbols.insert(symbol);
             fetchedSymbols.insert(symbol);
@@ -1199,18 +1224,21 @@ void TradeManager::fetchOpenOrders(Context &ctx)
             record.quantityNotional = std::abs(price * remainQty);
             record.side = marker.side;
             record.createdMs = marker.createdMs;
+            record.orderId = orderId;
             fetchedOrders.insert(orderId, record);
         }
         QList<OrderRecord> removedOrders;
         for (auto it = ctxPtr->activeOrders.constBegin(); it != ctxPtr->activeOrders.constEnd();
              ++it) {
             if (!fetchedOrders.contains(it.key())) {
-                removedOrders.push_back(it.value());
+                OrderRecord record = it.value();
+                record.orderId = it.key();
+                removedOrders.push_back(record);
             }
         }
         ctxPtr->activeOrders = fetchedOrders;
         for (const auto &record : removedOrders) {
-            emit orderCanceled(ctxPtr->accountName, record.symbol, record.side, record.price);
+            emit orderCanceled(ctxPtr->accountName, record.symbol, record.side, record.price, record.orderId);
         }
         for (auto it = ctxPtr->pendingCancelSymbols.begin(); it != ctxPtr->pendingCancelSymbols.end();) {
             if (!fetchedSymbols.contains(*it)) {
@@ -1309,6 +1337,7 @@ void TradeManager::processPrivateOrder(Context &ctx,
             record.price = price;
             record.quantityNotional = notional;
             record.createdMs = event.createTime > 0 ? event.createTime : QDateTime::currentMSecsSinceEpoch();
+            record.orderId = orderId;
             ctx.activeOrders.insert(orderId, record);
         } else {
             ctx.activeOrders.remove(orderId);
@@ -1321,7 +1350,7 @@ void TradeManager::processPrivateOrder(Context &ctx,
                                   || event.status == 5;
     if (isTerminalStatus) {
         ctx.pendingCancelSymbols.remove(normalizedSym);
-        emit orderCanceled(ctx.accountName, normalizedSym, side, event.price);
+        emit orderCanceled(ctx.accountName, normalizedSym, side, event.price, orderId);
     }
 }
 
@@ -1347,7 +1376,8 @@ void TradeManager::emitLocalOrderSnapshot(Context &ctx, const QString &symbol)
     QVector<DomWidget::LocalOrderMarker> markers;
     markers.reserve(ctx.activeOrders.size());
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    for (const auto &record : ctx.activeOrders) {
+    for (auto it = ctx.activeOrders.constBegin(); it != ctx.activeOrders.constEnd(); ++it) {
+        const auto &record = it.value();
         if (record.symbol != normalized || record.price <= 0.0 || record.quantityNotional <= 0.0) {
             continue;
         }
@@ -1356,6 +1386,7 @@ void TradeManager::emitLocalOrderSnapshot(Context &ctx, const QString &symbol)
         marker.quantity = record.quantityNotional;
         marker.side = record.side;
         marker.createdMs = record.createdMs > 0 ? record.createdMs : nowMs;
+        marker.orderId = it.key();
         markers.push_back(marker);
     }
     emit localOrdersUpdated(ctx.accountName, normalized, markers);
@@ -1370,14 +1401,16 @@ void TradeManager::clearSymbolActiveOrders(Context &ctx, const QString &symbol)
     QVector<OrderRecord> removed;
     for (auto it = ctx.activeOrders.begin(); it != ctx.activeOrders.end();) {
         if (it.value().symbol == normalized) {
-            removed.push_back(it.value());
+            OrderRecord record = it.value();
+            record.orderId = it.key();
+            removed.push_back(record);
             it = ctx.activeOrders.erase(it);
         } else {
             ++it;
         }
     }
     for (const auto &record : removed) {
-        emit orderCanceled(ctx.accountName, normalized, record.side, record.price);
+        emit orderCanceled(ctx.accountName, normalized, record.side, record.price, record.orderId);
     }
     emit localOrdersUpdated(ctx.accountName, normalized, {});
 }
@@ -1603,10 +1636,22 @@ TradeManager::Context &TradeManager::ensureContext(ConnectionStore::Profile prof
                                   const int sideFlag =
                                       data.value(QStringLiteral("order_buy_or_sell")).toInt(1);
                                   const OrderSide side = sideFlag == 2 ? OrderSide::Sell : OrderSide::Buy;
+                                  QString wsOrderId = data.value(QStringLiteral("order_id")).toString();
+                                  if (wsOrderId.isEmpty()) {
+                                      wsOrderId = data.value(QStringLiteral("orderId")).toString();
+                                  }
+                                  if (wsOrderId.isEmpty()) {
+                                      wsOrderId = data.value(QStringLiteral("clientOrderId")).toString();
+                                  }
+                                  if (wsOrderId.isEmpty()) {
+                                      wsOrderId = QStringLiteral("uzx_ws_%1")
+                                                      .arg(QDateTime::currentMSecsSinceEpoch());
+                                  }
                                   emit self->orderCanceled(ctx->accountName,
                                                            normalizedSymbol(name),
                                                            side,
-                                                           price);
+                                                           price,
+                                                           wsOrderId);
                               }
                               return;
                           }

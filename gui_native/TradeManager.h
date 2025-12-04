@@ -55,11 +55,13 @@ signals:
                      const QString &symbol,
                      OrderSide side,
                      double price,
-                     double quantity);
+                     double quantity,
+                     const QString &orderId);
     void orderCanceled(const QString &accountName,
                        const QString &symbol,
                        OrderSide side,
-                       double price);
+                       double price,
+                       const QString &orderId);
     void orderFailed(const QString &accountName, const QString &symbol, const QString &message);
     void positionChanged(const QString &accountName,
                          const QString &symbol,
@@ -76,6 +78,7 @@ private:
         double price = 0.0;
         double quantityNotional = 0.0;
         qint64 createdMs = 0;
+        QString orderId;
     };
     struct Context {
         ConnectionStore::Profile profile{ConnectionStore::Profile::MexcSpot};
