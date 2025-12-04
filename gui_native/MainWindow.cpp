@@ -3832,13 +3832,11 @@ void MainWindow::loadUserSettings()
 
     s.beginGroup(QStringLiteral("symbols"));
     const QStringList savedSymbols = s.value(QStringLiteral("list")).toStringList();
-    const QStringList savedApiOff = s.value(QStringLiteral("apiOff")).toStringList();
     if (!savedSymbols.isEmpty()) {
         m_symbolLibrary = savedSymbols;
     }
-    for (const QString &sym : savedApiOff) {
-        m_apiOffSymbols.insert(sym.trimmed().toUpper());
-    }
+    // Не тянем старый список apiOff из настроек, чтобы не красить все тикеры при ошибочных данных.
+    m_apiOffSymbols.clear();
     s.endGroup();
 
     m_savedLayout.clear();
@@ -4077,6 +4075,8 @@ void MainWindow::showEvent(QShowEvent *event)
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveUserSettings();
+    // Гарантированно закрываем приложение даже если остаются невидимые окна или фоновые таймеры.
+    QTimer::singleShot(0, qApp, []() { QCoreApplication::exit(0); });
     QMainWindow::closeEvent(event);
 }
 void MainWindow::addLocalOrderMarker(const QString &symbol,
@@ -4166,6 +4166,8 @@ void MainWindow::fetchSymbolLibrary()
     if (m_symbolRequestInFlight) {
         return;
     }
+    // Сбрасываем api-off перед новой загрузкой, чтобы не красить весь список старыми данными.
+    m_apiOffSymbols.clear();
     const QUrl url(QStringLiteral("https://api.mexc.com/api/v3/exchangeInfo"));
     QNetworkRequest req(url);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
@@ -4232,6 +4234,7 @@ void MainWindow::mergeSymbolLibrary(const QStringList &symbols, const QSet<QStri
         return a.toUpper() < b.toUpper();
     });
     m_symbolLibrary = merged;
+    m_apiOffSymbols.clear();
     for (const QString &s : apiOff) {
         m_apiOffSymbols.insert(s.trimmed().toUpper());
     }
@@ -4246,7 +4249,11 @@ SymbolPickerDialog *MainWindow::createSymbolPicker(const QString &title,
     dlg->setModal(false);
     dlg->setWindowModality(Qt::NonModal);
     dlg->setWindowTitle(title);
-    dlg->setSymbols(m_symbolLibrary, m_apiOffSymbols);
+    // Если по какой-то причине api-off внезапно содержит почти все тикеры, не красим всё подряд.
+    const bool apiOffLooksSuspicious =
+        !m_apiOffSymbols.isEmpty() && m_apiOffSymbols.size() >= (m_symbolLibrary.size() * 8) / 10;
+    const QSet<QString> apiOff = apiOffLooksSuspicious ? QSet<QString>() : m_apiOffSymbols;
+    dlg->setSymbols(m_symbolLibrary, apiOff);
 
     QVector<QPair<QString, QColor>> accounts;
     QSet<QString> seen;
@@ -4414,5 +4421,3 @@ void MainWindow::applyHeaderAccent(DomColumn &col)
     col.header->setStyleSheet(style);
 }
 
-ВЫФ
-ВФЫ
