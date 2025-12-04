@@ -76,6 +76,9 @@
 #include <QListWidget>
 #include <QAbstractItemView>
 
+namespace {
+constexpr int kPendingCancelRetryMs = 250;
+}
 #if __has_include(<QMediaPlayer>)
 #include <QMediaPlayer>
 #define HAS_QMEDIAPLAYER 1
@@ -453,7 +456,6 @@ MainWindow::MainWindow(const QString &backendPath,
                 this,
                 [this](const QString &account, const QString &sym, const QString &message) {
                     Q_UNUSED(account);
-                    Q_UNUSED(sym);
                     const QString msg = tr("Order failed: %1").arg(message);
                     statusBar()->showMessage(msg, 4000);
                     addNotification(msg, true);
@@ -2379,7 +2381,22 @@ void MainWindow::handleLadderStatusMessage(const QString &msg)
         return;
     }
 
+    logLadderStatus(msg);
     addNotification(msg);
+}
+
+void MainWindow::logLadderStatus(const QString &msg)
+{
+    if (m_connectionsWindow) {
+        m_connectionsWindow->appendLogMessage(msg);
+    }
+}
+
+void MainWindow::logMarkerEvent(const QString &msg)
+{
+    if (m_connectionsWindow) {
+        m_connectionsWindow->appendLogMessage(msg);
+    }
 }
 
 void MainWindow::handleLadderPingUpdated(int ms)
@@ -4188,6 +4205,17 @@ void MainWindow::addLocalOrderMarker(const QString &accountName,
             refreshColumnMarkers(col);
         }
     }
+    const QString accountDisplay = accountName.trimmed().isEmpty() ? QStringLiteral("MEXC Spot") : accountName.trimmed();
+    const QString sideName = side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL");
+    const double baseQty = std::abs(quantity);
+    const double notional = std::abs(quantity * price);
+    logMarkerEvent(QStringLiteral("[Marker add] acc=%1 sym=%2 %3 @ %4 qty=%5 notional=%6")
+                       .arg(accountDisplay)
+                       .arg(symUpper)
+                       .arg(sideName)
+                       .arg(price, 0, 'f', 8)
+                       .arg(baseQty, 0, 'f', 8)
+                       .arg(notional, 0, 'f', 8));
 }
 
 void MainWindow::removeLocalOrderMarker(const QString &accountName,
@@ -4198,6 +4226,13 @@ void MainWindow::removeLocalOrderMarker(const QString &accountName,
     const QString symUpper = symbol.toUpper();
     const QString accountLower = accountName.trimmed().toLower();
     const double tol = 1e-8;
+    const QString accountDisplay = accountName.trimmed().isEmpty() ? QStringLiteral("MEXC Spot") : accountName.trimmed();
+    const QString sideName = side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL");
+    logMarkerEvent(QStringLiteral("[Marker remove] acc=%1 sym=%2 %3 @ %4")
+                       .arg(accountDisplay)
+                       .arg(symUpper)
+                       .arg(sideName)
+                       .arg(price, 0, 'f', 8));
     for (auto &tab : m_tabs) {
         for (auto &col : tab.columnsData) {
             if (col.symbol.toUpper() != symUpper) continue;
@@ -4253,6 +4288,9 @@ void MainWindow::handleLocalOrdersUpdated(const QString &accountName,
             }
             col.remoteOrders = markers;
             refreshColumnMarkers(col);
+            if (markers.isEmpty()) {
+                clearPendingCancelForSymbol(targetSymbol);
+            }
         }
     }
 }
@@ -4271,7 +4309,9 @@ bool MainWindow::containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker
 
 void MainWindow::refreshColumnMarkers(DomColumn &col)
 {
-    QVector<DomWidget::LocalOrderMarker> combined = col.remoteOrders;
+    const QString normalizedSymbol = col.symbol.toUpper();
+    const bool suppressRemote = m_pendingCancelSymbols.contains(normalizedSymbol);
+    QVector<DomWidget::LocalOrderMarker> combined = suppressRemote ? QVector<DomWidget::LocalOrderMarker>() : col.remoteOrders;
     QVector<ManualOrder> updatedManuals;
     updatedManuals.reserve(col.manualOrders.size());
     for (auto &manual : col.manualOrders) {
@@ -4315,12 +4355,112 @@ void MainWindow::refreshColumnMarkers(DomColumn &col)
 
 void MainWindow::clearColumnLocalMarkers(DomColumn &col)
 {
-    if (col.remoteOrders.isEmpty() && col.manualOrders.isEmpty()) {
+    clearSymbolLocalMarkers(col.symbol.toUpper());
+}
+
+
+bool MainWindow::clearSymbolLocalMarkersInternal(const QString &symbolUpper, bool markPending)
+{
+    const QString normalized = symbolUpper.trimmed().toUpper();
+    if (normalized.isEmpty()) {
+        return false;
+    }
+    bool touched = false;
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            if (col.symbol.toUpper() != normalized) {
+                continue;
+            }
+            col.remoteOrders.clear();
+            col.manualOrders.clear();
+            touched = true;
+        }
+    }
+    if (!touched) {
+        return false;
+    }
+    if (markPending) {
+        markPendingCancelForSymbol(normalized);
+    } else {
+        refreshColumnsForSymbol(normalized);
+    }
+    return true;
+}
+
+
+void MainWindow::clearSymbolLocalMarkers(const QString &symbolUpper)
+{
+    clearSymbolLocalMarkersInternal(symbolUpper, true);
+}
+
+
+void MainWindow::markPendingCancelForSymbol(const QString &symbol)
+{
+    const QString normalized = symbol.trimmed().toUpper();
+    if (normalized.isEmpty()) {
         return;
     }
-    col.remoteOrders.clear();
-    col.manualOrders.clear();
-    refreshColumnMarkers(col);
+    if (!m_pendingCancelSymbols.contains(normalized)) {
+        m_pendingCancelSymbols.insert(normalized);
+    }
+    refreshColumnsForSymbol(normalized);
+    schedulePendingCancelTimer(normalized);
+}
+
+
+void MainWindow::clearPendingCancelForSymbol(const QString &symbol)
+{
+    const QString normalized = symbol.trimmed().toUpper();
+    if (normalized.isEmpty()) {
+        return;
+    }
+    if (!m_pendingCancelSymbols.remove(normalized)) {
+        return;
+    }
+    auto timerIt = m_pendingCancelTimers.find(normalized);
+    if (timerIt != m_pendingCancelTimers.end()) {
+        timerIt.value()->stop();
+        timerIt.value()->deleteLater();
+        m_pendingCancelTimers.erase(timerIt);
+    }
+    refreshColumnsForSymbol(normalized);
+}
+
+
+void MainWindow::schedulePendingCancelTimer(const QString &symbol)
+{
+    const QString normalized = symbol.trimmed().toUpper();
+    if (normalized.isEmpty()) {
+        return;
+    }
+    QTimer *timer = nullptr;
+    auto timerIt = m_pendingCancelTimers.find(normalized);
+    if (timerIt != m_pendingCancelTimers.end()) {
+        timer = timerIt.value();
+    } else {
+        timer = new QTimer(this);
+        timer->setSingleShot(true);
+        connect(timer, &QTimer::timeout, this, [this, normalized]() {
+            if (!m_pendingCancelSymbols.contains(normalized)) {
+                return;
+            }
+            clearSymbolLocalMarkersInternal(normalized, false);
+        });
+        m_pendingCancelTimers.insert(normalized, timer);
+    }
+    timer->start(kPendingCancelRetryMs);
+}
+
+
+void MainWindow::refreshColumnsForSymbol(const QString &symbolUpper)
+{
+    for (auto &tab : m_tabs) {
+        for (auto &col : tab.columnsData) {
+            if (col.symbol.toUpper() == symbolUpper) {
+                refreshColumnMarkers(col);
+            }
+        }
+    }
 }
 
 

@@ -10,6 +10,7 @@
 #include <QVector>
 #include <QStringList>
 #include <QRect>
+#include <QTimer>
 #include <QNetworkAccessManager>
 #include <QSet>
 #include <QHash>
@@ -85,6 +86,8 @@ private slots:
                              double price,
                              double bidQty,
                              double askQty);
+    void logLadderStatus(const QString &msg);
+    void logMarkerEvent(const QString &msg);
     void updateTimeLabel();
     void openConnectionsWindow();
     void openPluginsWindow();
@@ -208,6 +211,12 @@ private:
                                 double price);
     void refreshColumnMarkers(DomColumn &col);
     void clearColumnLocalMarkers(DomColumn &col);
+    void clearSymbolLocalMarkers(const QString &symbolUpper);
+    bool clearSymbolLocalMarkersInternal(const QString &symbolUpper, bool markPending);
+    void markPendingCancelForSymbol(const QString &symbol);
+    void clearPendingCancelForSymbol(const QString &symbol);
+    void schedulePendingCancelTimer(const QString &symbol);
+    void refreshColumnsForSymbol(const QString &symbolUpper);
     bool containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker> &markers,
                                const DomWidget::LocalOrderMarker &candidate) const;
     enum class SymbolSource { Mexc, UzxSpot, UzxSwap };
@@ -259,6 +268,8 @@ private:
     QStackedWidget *m_workspaceStack;
     QToolButton *m_addTabButton;
     QToolButton *m_addMenuButton;
+    QSet<QString> m_pendingCancelSymbols;
+    QHash<QString, QTimer *> m_pendingCancelTimers;
     QLineEdit *m_settingsSearchEdit;
     QCompleter *m_settingsCompleter = nullptr;
     QLabel *m_connectionIndicator;

@@ -135,6 +135,7 @@ private:
     void processPrivateAccount(Context &ctx, const QByteArray &body);
     void emitLocalOrderSnapshot(Context &ctx, const QString &symbol);
     void clearLocalOrderSnapshots(Context &ctx);
+    void clearSymbolActiveOrders(Context &ctx, const QString &symbol);
 
     Context *contextForProfile(ConnectionStore::Profile profile) const;
 

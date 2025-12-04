@@ -342,7 +342,13 @@ void LadderClient::processLine(const QByteArray &line)
 
 void LadderClient::emitStatus(const QString &msg)
 {
-    emit statusMessage(msg);
+    const QString symbol = m_symbol.toUpper();
+    QString exchangeLabel = m_exchange.toUpper();
+    if (exchangeLabel.isEmpty()) {
+        exchangeLabel = QStringLiteral("auto");
+    }
+    const QString decorated = QStringLiteral("[%1@%2] %3").arg(symbol, exchangeLabel, msg);
+    emit statusMessage(decorated);
 }
 
 void LadderClient::armWatchdog()

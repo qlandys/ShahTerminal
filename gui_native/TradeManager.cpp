@@ -819,21 +819,7 @@ void TradeManager::cancelAllOrders(const QString &symbol, const QString &account
                                  sym,
                                  raw.isEmpty() ? QStringLiteral("<empty>")
                                                : QString::fromUtf8(raw)));
-        QVector<OrderRecord> removedOrders;
-        for (auto it = ctxPtr->activeOrders.begin(); it != ctxPtr->activeOrders.end();) {
-            if (it.value().symbol == sym) {
-                removedOrders.push_back(it.value());
-                it = ctxPtr->activeOrders.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        for (const auto &record : removedOrders) {
-            emit orderCanceled(ctxPtr->accountName, record.symbol, record.side, record.price);
-        }
-        if (!removedOrders.isEmpty()) {
-            emitLocalOrderSnapshot(*ctxPtr, sym);
-        }
+        clearSymbolActiveOrders(*ctxPtr, sym);
     });
 }
 void TradeManager::handleOrderFill(Context &ctx,
@@ -1329,8 +1315,11 @@ void TradeManager::processPrivateOrder(Context &ctx,
         }
         emitLocalOrderSnapshot(ctx, normalizedSym);
     }
-    if (event.status == 2 || event.status == 4 || event.status == 5
-        || event.remainQuantity <= 0.0) {
+    const bool isTerminalStatus = event.status == 2
+                                  || event.status == 3
+                                  || event.status == 4
+                                  || event.status == 5;
+    if (isTerminalStatus) {
         ctx.pendingCancelSymbols.remove(normalizedSym);
         emit orderCanceled(ctx.accountName, normalizedSym, side, event.price);
     }
@@ -1370,6 +1359,27 @@ void TradeManager::emitLocalOrderSnapshot(Context &ctx, const QString &symbol)
         markers.push_back(marker);
     }
     emit localOrdersUpdated(ctx.accountName, normalized, markers);
+}
+
+void TradeManager::clearSymbolActiveOrders(Context &ctx, const QString &symbol)
+{
+    const QString normalized = normalizedSymbol(symbol);
+    if (normalized.isEmpty()) {
+        return;
+    }
+    QVector<OrderRecord> removed;
+    for (auto it = ctx.activeOrders.begin(); it != ctx.activeOrders.end();) {
+        if (it.value().symbol == normalized) {
+            removed.push_back(it.value());
+            it = ctx.activeOrders.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const auto &record : removed) {
+        emit orderCanceled(ctx.accountName, normalized, record.side, record.price);
+    }
+    emit localOrdersUpdated(ctx.accountName, normalized, {});
 }
 
 void TradeManager::clearLocalOrderSnapshots(Context &ctx)
