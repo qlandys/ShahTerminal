@@ -25,78 +25,101 @@ public:
     Q_ENUM(ConnectionState)
 
     explicit TradeManager(QObject *parent = nullptr);
+    ~TradeManager();
 
-    void setCredentials(const MexcCredentials &creds);
-    MexcCredentials credentials() const;
-    ConnectionState state() const;
-    void setProfile(ConnectionStore::Profile profile);
-    ConnectionStore::Profile profile() const;
+    void setCredentials(ConnectionStore::Profile profile, const MexcCredentials &creds);
+    MexcCredentials credentials(ConnectionStore::Profile profile) const;
+    ConnectionState state(ConnectionStore::Profile profile) const;
+    ConnectionState overallState() const;
 
-    void connectToExchange();
-    void disconnect();
-    bool isConnected() const;
+    void connectToExchange(ConnectionStore::Profile profile);
+    void disconnect(ConnectionStore::Profile profile);
+    bool isConnected(ConnectionStore::Profile profile) const;
 
-    void placeLimitOrder(const QString &symbol, double price, double quantity, OrderSide side);
-    void cancelAllOrders(const QString &symbol);
+    void placeLimitOrder(const QString &symbol,
+                         const QString &accountName,
+                         double price,
+                         double quantity,
+                         OrderSide side);
+    void cancelAllOrders(const QString &symbol, const QString &accountName);
 
-    TradePosition positionForSymbol(const QString &symbol) const;
+    TradePosition positionForSymbol(const QString &symbol, const QString &accountName) const;
 
 signals:
-    void connectionStateChanged(TradeManager::ConnectionState state, const QString &message);
-    void orderPlaced(const QString &symbol, OrderSide side, double price, double quantity);
-    void orderCanceled(const QString &symbol, OrderSide side, double price);
-    void orderFailed(const QString &symbol, const QString &message);
-    void positionChanged(const QString &symbol, const TradePosition &position);
+    void connectionStateChanged(ConnectionStore::Profile profile,
+                                TradeManager::ConnectionState state,
+                                const QString &message);
+    void orderPlaced(const QString &accountName,
+                     const QString &symbol,
+                     OrderSide side,
+                     double price,
+                     double quantity);
+    void orderCanceled(const QString &accountName,
+                       const QString &symbol,
+                       OrderSide side,
+                       double price);
+    void orderFailed(const QString &accountName, const QString &symbol, const QString &message);
+    void positionChanged(const QString &accountName,
+                         const QString &symbol,
+                         const TradePosition &position);
     void logMessage(const QString &message);
 
-private slots:
-    void handleSocketConnected();
-    void handleSocketDisconnected();
-    void handleSocketError(QAbstractSocket::SocketError error);
-    void handleSocketTextMessage(const QString &message);
-    void handleSocketBinaryMessage(const QByteArray &payload);
-    void refreshListenKey();
-
 private:
-    void setState(ConnectionState state, const QString &message = QString());
-    QByteArray signPayload(const QUrlQuery &query) const;
+    struct Context {
+        ConnectionStore::Profile profile{ConnectionStore::Profile::MexcSpot};
+        MexcCredentials credentials;
+        QString accountName;
+        ConnectionState state{ConnectionState::Disconnected};
+        QWebSocket privateSocket;
+        QTimer keepAliveTimer;
+        QTimer reconnectTimer;
+        QTimer wsPingTimer;
+        QString listenKey;
+        bool closingSocket{false};
+        bool hasSubscribed{false};
+        QHash<QString, TradePosition> positions;
+    };
+
+    Context &ensureContext(ConnectionStore::Profile profile) const;
+    QString defaultAccountName(ConnectionStore::Profile profile) const;
+    QString profileKey(ConnectionStore::Profile profile) const;
+    QString accountNameFor(ConnectionStore::Profile profile) const;
+    ConnectionStore::Profile profileFromAccountName(const QString &accountName) const;
+
+    void setState(Context &ctx, ConnectionState state, const QString &message = QString());
+    QByteArray signPayload(const QUrlQuery &query, const Context &ctx) const;
     QByteArray signUzxPayload(const QByteArray &body,
                               const QString &method,
-                              const QString &path) const;
+                              const QString &path,
+                              const Context &ctx) const;
     QNetworkRequest makePrivateRequest(const QString &path,
                                        const QUrlQuery &query,
-                                       const QByteArray &contentType = QByteArray()) const;
+                                       const QByteArray &contentType,
+                                       const Context &ctx) const;
     QNetworkRequest makeUzxRequest(const QString &path,
                                    const QByteArray &body,
-                                   const QString &method = QStringLiteral("POST")) const;
-    void handleOrderFill(const QString &symbol, OrderSide side, double price, double quantity);
-    void emitPositionChanged(const QString &symbol);
-    bool ensureCredentials() const;
-    void requestListenKey();
-    void initializeWebSocket(const QString &listenKey);
-    void initializeUzxWebSocket();
-    void closeWebSocket();
-    void subscribePrivateChannels();
-    void subscribeUzxPrivate();
-    void sendListenKeyKeepAlive();
-    void resetConnection(const QString &reason);
-    void scheduleReconnect();
-    void processPrivateDeal(const QByteArray &body, const QString &symbol);
-    void processPrivateOrder(const QByteArray &body, const QString &symbol);
-    void processPrivateAccount(const QByteArray &body);
+                                   const QString &method,
+                                   const Context &ctx) const;
+    void handleOrderFill(Context &ctx, const QString &symbol, OrderSide side, double price, double quantity);
+    void emitPositionChanged(Context &ctx, const QString &symbol);
+    bool ensureCredentials(const Context &ctx) const;
+    void requestListenKey(Context &ctx);
+    void initializeWebSocket(Context &ctx, const QString &listenKey);
+    void initializeUzxWebSocket(Context &ctx);
+    void closeWebSocket(Context &ctx);
+    void subscribePrivateChannels(Context &ctx);
+    void subscribeUzxPrivate(Context &ctx);
+    void sendListenKeyKeepAlive(Context &ctx);
+    void resetConnection(Context &ctx, const QString &reason);
+    void scheduleReconnect(Context &ctx);
+    void processPrivateDeal(Context &ctx, const QByteArray &body, const QString &symbol);
+    void processPrivateOrder(Context &ctx, const QByteArray &body, const QString &symbol);
+    void processPrivateAccount(Context &ctx, const QByteArray &body);
+
+    Context *contextForProfile(ConnectionStore::Profile profile) const;
 
     QNetworkAccessManager m_network;
-    MexcCredentials m_credentials;
-    ConnectionState m_state = ConnectionState::Disconnected;
-    ConnectionStore::Profile m_profile = ConnectionStore::Profile::MexcSpot;
-    QHash<QString, TradePosition> m_positions;
+    mutable QHash<ConnectionStore::Profile, Context *> m_contexts;
     const QString m_baseUrl = QStringLiteral("https://api.mexc.com");
     const QString m_uzxBaseUrl = QStringLiteral("https://api-v2.uzx.com");
-    QWebSocket m_privateSocket;
-    QTimer m_keepAliveTimer;
-    QTimer m_reconnectTimer;
-    QTimer m_wsPingTimer;
-    QString m_listenKey;
-    bool m_closingSocket = false;
-    bool m_hasSubscribed = false;
 };

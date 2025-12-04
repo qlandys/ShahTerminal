@@ -434,8 +434,13 @@ MainWindow::MainWindow(const QString &backendPath,
         connect(m_tradeManager,
                 &TradeManager::orderPlaced,
                 this,
-                [this](const QString &sym, OrderSide side, double price, double qty) {
-                    addLocalOrderMarker(sym, side, price, qty, QDateTime::currentMSecsSinceEpoch());
+                [this](const QString &account, const QString &sym, OrderSide side, double price, double qty) {
+                    addLocalOrderMarker(account,
+                                        sym,
+                                        side,
+                                        price,
+                                        qty,
+                                        QDateTime::currentMSecsSinceEpoch());
                     const QString msg = tr("Order placed: %1 %2 @ %3")
                                             .arg(side == OrderSide::Buy ? QStringLiteral("BUY")
                                                                         : QStringLiteral("SELL"))
@@ -446,13 +451,14 @@ MainWindow::MainWindow(const QString &backendPath,
         connect(m_tradeManager,
                 &TradeManager::orderCanceled,
                 this,
-                [this](const QString &sym, OrderSide side, double price) {
-                    removeLocalOrderMarker(sym, side, price);
+                [this](const QString &account, const QString &sym, OrderSide side, double price) {
+                    removeLocalOrderMarker(account, sym, side, price);
                 });
         connect(m_tradeManager,
                 &TradeManager::orderFailed,
                 this,
-                [this](const QString &sym, const QString &message) {
+                [this](const QString &account, const QString &sym, const QString &message) {
+                    Q_UNUSED(account);
                     Q_UNUSED(sym);
                     const QString msg = tr("Order failed: %1").arg(message);
                     statusBar()->showMessage(msg, 4000);
@@ -463,20 +469,36 @@ MainWindow::MainWindow(const QString &backendPath,
     createInitialWorkspace();
 
     if (m_connectionStore && m_tradeManager) {
-        MexcCredentials creds = m_connectionStore->loadMexcCredentials();
-        if (!creds.apiKey.isEmpty()) {
-            m_tradeManager->setCredentials(creds);
-            if (creds.autoConnect && !creds.secretKey.isEmpty()) {
-                QTimer::singleShot(0, this, [this]() {
+        auto initProfile = [&](ConnectionStore::Profile profile) {
+            MexcCredentials creds = m_connectionStore->loadMexcCredentials(profile);
+            m_tradeManager->setCredentials(profile, creds);
+            const bool hasKey = !creds.apiKey.isEmpty();
+            const bool hasSecret = !creds.secretKey.isEmpty();
+            const bool uzxProfile = (profile == ConnectionStore::Profile::UzxSpot
+                                     || profile == ConnectionStore::Profile::UzxSwap);
+            bool canAuto = creds.autoConnect && hasKey && hasSecret;
+            if (uzxProfile) {
+                canAuto = canAuto && !creds.passphrase.isEmpty();
+            }
+            if (canAuto) {
+                QTimer::singleShot(0, this, [this, profile]() {
                     if (m_tradeManager) {
-                        m_tradeManager->connectToExchange();
+                        m_tradeManager->connectToExchange(profile);
                     }
                 });
             }
-        }
-        handleConnectionStateChanged(m_tradeManager->state(), QString());
+        };
+        initProfile(ConnectionStore::Profile::MexcSpot);
+        initProfile(ConnectionStore::Profile::MexcFutures);
+        initProfile(ConnectionStore::Profile::UzxSwap);
+        initProfile(ConnectionStore::Profile::UzxSpot);
+        handleConnectionStateChanged(ConnectionStore::Profile::MexcSpot,
+                                     m_tradeManager->overallState(),
+                                     QString());
     } else {
-        handleConnectionStateChanged(TradeManager::ConnectionState::Disconnected, QString());
+        handleConnectionStateChanged(ConnectionStore::Profile::MexcSpot,
+                                     TradeManager::ConnectionState::Disconnected,
+                                     QString());
     }
 }
 
@@ -1150,7 +1172,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         if (m_tradeManager) {
             DomColumn *col = focusedDomColumn();
             if (col) {
-                m_tradeManager->cancelAllOrders(col->symbol);
+                m_tradeManager->cancelAllOrders(col->symbol, col->accountName);
             }
         }
         event->accept();
@@ -2402,7 +2424,7 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
         return;
     }
     const OrderSide side = (button == Qt::LeftButton) ? OrderSide::Buy : OrderSide::Sell;
-    m_tradeManager->placeLimitOrder(column->symbol, price, quantity, side);
+    m_tradeManager->placeLimitOrder(column->symbol, column->accountName, price, quantity, side);
     statusBar()->showMessage(
         tr("Submitting %1 %2 @ %3")
             .arg(side == OrderSide::Buy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
@@ -2411,12 +2433,22 @@ void MainWindow::handleDomRowClicked(Qt::MouseButton button,
         2000);
 }
 
-void MainWindow::handlePositionChanged(const QString &symbol, const TradePosition &position)
+void MainWindow::handlePositionChanged(const QString &accountName,
+                                       const QString &symbol,
+                                       const TradePosition &position)
 {
     const QString symUpper = symbol.toUpper();
+    const QString accountLower = accountName.trimmed().toLower();
     for (auto &tab : m_tabs) {
         for (auto &col : tab.columnsData) {
-            if (col.symbol.compare(symUpper, Qt::CaseInsensitive) == 0 && col.dom) {
+            if (col.symbol.compare(symUpper, Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            if (!accountLower.isEmpty()
+                && col.accountName.trimmed().toLower() != accountLower) {
+                continue;
+            }
+            if (col.dom) {
                 col.dom->setTradePosition(position);
             }
         }
@@ -2654,13 +2686,29 @@ void MainWindow::openConnectionsWindow()
     m_connectionsWindow->activateWindow();
 }
 
-void MainWindow::handleConnectionStateChanged(TradeManager::ConnectionState state,
+void MainWindow::handleConnectionStateChanged(ConnectionStore::Profile profile,
+                                              TradeManager::ConnectionState state,
                                               const QString &message)
 {
+    auto profileLabel = [profile]() {
+        switch (profile) {
+        case ConnectionStore::Profile::MexcFutures:
+            return QStringLiteral("MEXC Futures");
+        case ConnectionStore::Profile::UzxSwap:
+            return QStringLiteral("UZX Swap");
+        case ConnectionStore::Profile::UzxSpot:
+            return QStringLiteral("UZX Spot");
+        case ConnectionStore::Profile::MexcSpot:
+        default:
+            return QStringLiteral("MEXC Spot");
+        }
+    };
+    const auto overallState =
+        m_tradeManager ? m_tradeManager->overallState() : state;
     if (m_connectionIndicator) {
         QString text;
         QColor color;
-        switch (state) {
+        switch (overallState) {
         case TradeManager::ConnectionState::Connected:
             text = tr("Connected");
             color = QColor("#2e7d32");
@@ -2692,12 +2740,14 @@ void MainWindow::handleConnectionStateChanged(TradeManager::ConnectionState stat
         m_connectionIndicator->setStyleSheet(style);
     }
     if (!message.isEmpty()) {
-        statusBar()->showMessage(message, 2500);
+        statusBar()->showMessage(QStringLiteral("%1: %2").arg(profileLabel(), message), 2500);
     }
 
-    if (state == TradeManager::ConnectionState::Error ||
-        state == TradeManager::ConnectionState::Disconnected) {
-        const QString note = message.isEmpty() ? tr("Connection lost") : message;
+    if (state == TradeManager::ConnectionState::Error
+        || state == TradeManager::ConnectionState::Disconnected) {
+        const QString note = message.isEmpty()
+                                 ? tr("%1 connection lost").arg(profileLabel())
+                                 : QStringLiteral("%1: %2").arg(profileLabel(), message);
         addNotification(note);
     }
 }
@@ -4098,7 +4148,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
     QTimer::singleShot(0, qApp, []() { QCoreApplication::exit(0); });
     QMainWindow::closeEvent(event);
 }
-void MainWindow::addLocalOrderMarker(const QString &symbol,
+void MainWindow::addLocalOrderMarker(const QString &accountName,
+                                     const QString &symbol,
                                      OrderSide side,
                                      double price,
                                      double quantity,
@@ -4106,10 +4157,15 @@ void MainWindow::addLocalOrderMarker(const QString &symbol,
 {
     const qint64 ts = createdMs > 0 ? createdMs : QDateTime::currentMSecsSinceEpoch();
     const QString symUpper = symbol.toUpper();
+    const QString accountLower = accountName.trimmed().toLower();
     const int maxMarkers = 20;
     for (auto &tab : m_tabs) {
         for (auto &col : tab.columnsData) {
             if (col.symbol.toUpper() != symUpper) {
+                continue;
+            }
+            if (!accountLower.isEmpty()
+                && col.accountName.trimmed().toLower() != accountLower) {
                 continue;
             }
             DomWidget::LocalOrderMarker marker;
@@ -4142,15 +4198,21 @@ void MainWindow::addLocalOrderMarker(const QString &symbol,
     }
 }
 
-void MainWindow::removeLocalOrderMarker(const QString &symbol,
+void MainWindow::removeLocalOrderMarker(const QString &accountName,
+                                        const QString &symbol,
                                         OrderSide side,
                                         double price)
 {
     const QString symUpper = symbol.toUpper();
+    const QString accountLower = accountName.trimmed().toLower();
     const double tol = 1e-8;
     for (auto &tab : m_tabs) {
         for (auto &col : tab.columnsData) {
             if (col.symbol.toUpper() != symUpper) continue;
+            if (!accountLower.isEmpty()
+                && col.accountName.trimmed().toLower() != accountLower) {
+                continue;
+            }
             auto match = [&](const DomWidget::LocalOrderMarker &m) {
                 if (m.side != side) return false;
                 return std::abs(m.price - price) <= tol;

@@ -89,8 +89,12 @@ private slots:
     void openConnectionsWindow();
     void openPluginsWindow();
     void openSettingsWindow();
-    void handleConnectionStateChanged(TradeManager::ConnectionState state, const QString &message);
-    void handlePositionChanged(const QString &symbol, const TradePosition &position);
+    void handleConnectionStateChanged(ConnectionStore::Profile profile,
+                                      TradeManager::ConnectionState state,
+                                      const QString &message);
+    void handlePositionChanged(const QString &accountName,
+                               const QString &symbol,
+                               const TradePosition &position);
     void applyNotionalPreset(int presetIndex);
     void startNotionalEdit(QWidget *columnContainer, int presetIndex);
     void commitNotionalEdit(QWidget *columnContainer, bool apply);
@@ -182,12 +186,14 @@ private:
                               Qt::KeyboardModifiers eventMods,
                               int key,
                               Qt::KeyboardModifiers mods);
-    void addLocalOrderMarker(const QString &symbol,
+    void addLocalOrderMarker(const QString &accountName,
+                             const QString &symbol,
                              OrderSide side,
                              double price,
                              double quantity,
                              qint64 createdMs);
-    void removeLocalOrderMarker(const QString &symbol,
+    void removeLocalOrderMarker(const QString &accountName,
+                                const QString &symbol,
                                 OrderSide side,
                                 double price);
     enum class SymbolSource { Mexc, UzxSpot, UzxSwap };

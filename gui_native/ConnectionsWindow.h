@@ -23,12 +23,14 @@ public:
     void refreshUi();
 
 public slots:
-    void handleManagerStateChanged(TradeManager::ConnectionState state, const QString &message);
+    void handleManagerStateChanged(ConnectionStore::Profile profile,
+                                   TradeManager::ConnectionState state,
+                                   const QString &message);
     void appendLogMessage(const QString &message);
 
 private slots:
     void handleConnectClicked(const QString &id);
-    void handleDisconnectClicked();
+    void handleDisconnectClicked(const QString &id);
 
 private:
     struct CardWidgets {
@@ -50,11 +52,14 @@ private:
         QWidget *body = nullptr;
         QWidget *frame = nullptr;
         bool expanded = true;
+        TradeManager::ConnectionState currentState = TradeManager::ConnectionState::Disconnected;
     };
 
     CardWidgets *createCard(const QString &id);
     CardWidgets *ensureCard(const QString &id);
-    void applyState(TradeManager::ConnectionState state, const QString &message);
+    void applyState(ConnectionStore::Profile profile,
+                    TradeManager::ConnectionState state,
+                    const QString &message);
     MexcCredentials collectCredentials(const CardWidgets &card) const;
     void persistCard(const CardWidgets &card);
     void setCardExpanded(CardWidgets *card, bool expanded);
@@ -68,6 +73,5 @@ private:
     QVector<CardWidgets *> m_cards;
     QVBoxLayout *m_cardsLayout = nullptr;
     QWidget *m_cardsContainer = nullptr;
-    QString m_activeId;
     QPlainTextEdit *m_logView = nullptr;
 };

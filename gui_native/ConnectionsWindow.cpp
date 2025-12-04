@@ -63,6 +63,21 @@ ConnectionStore::Profile profileFromId(const QString &id)
     return ConnectionStore::Profile::MexcSpot;
 }
 
+QString idFromProfile(ConnectionStore::Profile profile)
+{
+    switch (profile) {
+    case ConnectionStore::Profile::MexcFutures:
+        return QStringLiteral("mexcFutures");
+    case ConnectionStore::Profile::UzxSwap:
+        return QStringLiteral("uzxSwap");
+    case ConnectionStore::Profile::UzxSpot:
+        return QStringLiteral("uzxSpot");
+    case ConnectionStore::Profile::MexcSpot:
+    default:
+        return QStringLiteral("mexcSpot");
+    }
+}
+
 QString defaultColorForId(const QString &id)
 {
     if (id == QStringLiteral("mexcFutures")) {
@@ -273,8 +288,8 @@ ConnectionsWindow::CardWidgets *ConnectionsWindow::createCard(const QString &id)
     connect(card->connectButton, &QPushButton::clicked, this, [this, id]() {
         handleConnectClicked(id);
     });
-    connect(card->disconnectButton, &QPushButton::clicked, this, [this]() {
-        handleDisconnectClicked();
+    connect(card->disconnectButton, &QPushButton::clicked, this, [this, id]() {
+        handleDisconnectClicked(id);
     });
     connect(card->expandButton, &QToolButton::clicked, this, [this, card]() {
         setCardExpanded(card, !card->expanded);
@@ -341,20 +356,29 @@ void ConnectionsWindow::refreshUi()
         card->color = QColor(creds.colorHex);
         styleColorButton(card->colorButton, card->color);
         card->statusBadge->setText(tr("Отключено"));
-        card->statusBadge->setStyleSheet(badgeStyle(statusColor(TradeManager::ConnectionState::Disconnected)));
+        card->statusBadge->setStyleSheet(
+            badgeStyle(statusColor(TradeManager::ConnectionState::Disconnected)));
         setCardExpanded(card, order < 2);
         order++;
     }
 
-    const auto state = m_manager ? m_manager->state() : TradeManager::ConnectionState::Disconnected;
-    applyState(state, QString());
+    auto applyProfileState = [&](ConnectionStore::Profile profile) {
+        const auto state = m_manager ? m_manager->state(profile)
+                                     : TradeManager::ConnectionState::Disconnected;
+        applyState(profile, state, QString());
+    };
+    applyProfileState(ConnectionStore::Profile::MexcSpot);
+    applyProfileState(ConnectionStore::Profile::MexcFutures);
+    applyProfileState(ConnectionStore::Profile::UzxSwap);
+    applyProfileState(ConnectionStore::Profile::UzxSpot);
     rebuildLayout();
 }
 
-void ConnectionsWindow::handleManagerStateChanged(TradeManager::ConnectionState state,
+void ConnectionsWindow::handleManagerStateChanged(ConnectionStore::Profile profile,
+                                                  TradeManager::ConnectionState state,
                                                   const QString &message)
 {
-    applyState(state, message);
+    applyState(profile, state, message);
     if (!message.isEmpty()) {
         appendLogMessage(message);
     }
@@ -381,58 +405,61 @@ void ConnectionsWindow::handleConnectClicked(const QString &id)
         return;
     }
     MexcCredentials creds = collectCredentials(*card);
-    if (m_manager) {
-        m_manager->setProfile(profileFromId(id));
-    }
+    const auto profile = profileFromId(id);
     if (m_store) {
-        m_store->saveMexcCredentials(creds, profileFromId(id));
+        m_store->saveMexcCredentials(creds, profile);
     }
-    m_activeId = id;
-    m_manager->setCredentials(creds);
-    m_manager->connectToExchange();
-    applyState(TradeManager::ConnectionState::Connecting, QString());
+    m_manager->setCredentials(profile, creds);
+    m_manager->connectToExchange(profile);
+    applyState(profile, TradeManager::ConnectionState::Connecting, QString());
 }
 
-void ConnectionsWindow::handleDisconnectClicked()
+void ConnectionsWindow::handleDisconnectClicked(const QString &id)
 {
-    if (m_manager) {
-        m_manager->disconnect();
+    if (!m_manager) {
+        return;
     }
+    const auto profile = profileFromId(id);
+    m_manager->disconnect(profile);
+    applyState(profile, TradeManager::ConnectionState::Disconnected, QString());
 }
 
-void ConnectionsWindow::applyState(TradeManager::ConnectionState state, const QString &message)
+void ConnectionsWindow::applyState(ConnectionStore::Profile profile,
+                                   TradeManager::ConnectionState state,
+                                   const QString &message)
 {
     Q_UNUSED(message);
-    for (auto *card : m_cards) {
-        const bool isActive = (!m_activeId.isEmpty() ? card->id == m_activeId : card->id == QStringLiteral("mexcSpot"));
-        const QString color = isActive ? statusColor(state)
-                                       : statusColor(TradeManager::ConnectionState::Disconnected);
-        QString text;
-        if (isActive) {
-            switch (state) {
-            case TradeManager::ConnectionState::Connected:
-                text = tr("Подключено");
-                break;
-            case TradeManager::ConnectionState::Connecting:
-                text = tr("Подключение...");
-                break;
-            case TradeManager::ConnectionState::Error:
-                text = tr("Ошибка");
-                break;
-            case TradeManager::ConnectionState::Disconnected:
-            default:
-                text = tr("Отключено");
-                break;
-            }
-        } else {
-            text = tr("Ожидает");
-        }
-        card->statusBadge->setText(text);
-        card->statusBadge->setStyleSheet(badgeStyle(color));
+    CardWidgets *card = ensureCard(idFromProfile(profile));
+    if (!card) {
+        return;
+    }
+    card->currentState = state;
+    const QString color = statusColor(state);
+    QString text;
+    switch (state) {
+    case TradeManager::ConnectionState::Connected:
+        text = tr("Подключено");
+        break;
+    case TradeManager::ConnectionState::Connecting:
+        text = tr("Подключение...");
+        break;
+    case TradeManager::ConnectionState::Error:
+        text = tr("Ошибка");
+        break;
+    case TradeManager::ConnectionState::Disconnected:
+    default:
+        text = tr("Отключено");
+        break;
+    }
+    card->statusBadge->setText(text);
+    card->statusBadge->setStyleSheet(badgeStyle(color));
 
-        const bool connecting = isActive && state == TradeManager::ConnectionState::Connecting;
-        const bool connected = isActive && state == TradeManager::ConnectionState::Connected;
+    const bool connecting = state == TradeManager::ConnectionState::Connecting;
+    const bool connected = state == TradeManager::ConnectionState::Connected;
+    if (card->connectButton) {
         card->connectButton->setEnabled(!connecting);
+    }
+    if (card->disconnectButton) {
         card->disconnectButton->setEnabled(connecting || connected);
     }
 }
@@ -498,7 +525,9 @@ void ConnectionsWindow::clearCard(CardWidgets *card)
     card->viewOnlyCheck->setChecked(false);
     card->autoConnectCheck->setChecked(true);
     persistCard(*card);
-    applyState(m_manager ? m_manager->state() : TradeManager::ConnectionState::Disconnected, QString());
+    applyState(profileFromId(card->id),
+               TradeManager::ConnectionState::Disconnected,
+               QString());
 }
 
 void ConnectionsWindow::rebuildLayout()
