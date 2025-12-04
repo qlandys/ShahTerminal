@@ -1176,6 +1176,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         if (m_tradeManager) {
             DomColumn *col = focusedDomColumn();
             if (col) {
+                clearColumnLocalMarkers(*col);
                 m_tradeManager->cancelAllOrders(col->symbol, col->accountName);
             }
         }
@@ -4309,6 +4310,17 @@ void MainWindow::refreshColumnMarkers(DomColumn &col)
         }
         col.prints->setLocalOrders(printMarkers);
     }
+}
+
+
+void MainWindow::clearColumnLocalMarkers(DomColumn &col)
+{
+    if (col.remoteOrders.isEmpty() && col.manualOrders.isEmpty()) {
+        return;
+    }
+    col.remoteOrders.clear();
+    col.manualOrders.clear();
+    refreshColumnMarkers(col);
 }
 
 

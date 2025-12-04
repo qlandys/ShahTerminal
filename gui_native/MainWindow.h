@@ -207,6 +207,7 @@ private:
                                 OrderSide side,
                                 double price);
     void refreshColumnMarkers(DomColumn &col);
+    void clearColumnLocalMarkers(DomColumn &col);
     bool containsSimilarMarker(const QVector<DomWidget::LocalOrderMarker> &markers,
                                const DomWidget::LocalOrderMarker &candidate) const;
     enum class SymbolSource { Mexc, UzxSpot, UzxSwap };

@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QList>
 #include <QMessageAuthenticationCode>
 #include <QNetworkRequest>
 #include <QUrl>
@@ -773,8 +774,6 @@ void TradeManager::cancelAllOrders(const QString &symbol, const QString &account
         emit orderFailed(ctx.accountName, sym, tr("Connect to the exchange first"));
         return;
     }
-    emit logMessage(QStringLiteral("%1 Cancel-all requested for %2")
-                        .arg(contextTag(ctx.accountName), sym));
     if (profile == ConnectionStore::Profile::UzxSpot
         || profile == ConnectionStore::Profile::UzxSwap) {
         emit orderFailed(ctx.accountName, sym, tr("Cancel-all not implemented for UZX"));
@@ -782,6 +781,9 @@ void TradeManager::cancelAllOrders(const QString &symbol, const QString &account
                             .arg(contextTag(ctx.accountName)));
         return;
     }
+    emit logMessage(QStringLiteral("%1 Cancel-all requested for %2")
+                        .arg(contextTag(ctx.accountName), sym));
+    ctx.pendingCancelSymbols.insert(sym);
 
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("symbol"), sym);
@@ -817,6 +819,21 @@ void TradeManager::cancelAllOrders(const QString &symbol, const QString &account
                                  sym,
                                  raw.isEmpty() ? QStringLiteral("<empty>")
                                                : QString::fromUtf8(raw)));
+        QVector<OrderRecord> removedOrders;
+        for (auto it = ctxPtr->activeOrders.begin(); it != ctxPtr->activeOrders.end();) {
+            if (it.value().symbol == sym) {
+                removedOrders.push_back(it.value());
+                it = ctxPtr->activeOrders.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (const auto &record : removedOrders) {
+            emit orderCanceled(ctxPtr->accountName, record.symbol, record.side, record.price);
+        }
+        if (!removedOrders.isEmpty()) {
+            emitLocalOrderSnapshot(*ctxPtr, sym);
+        }
     });
 }
 void TradeManager::handleOrderFill(Context &ctx,
@@ -1155,6 +1172,8 @@ void TradeManager::fetchOpenOrders(Context &ctx)
         }
         QHash<QString, QVector<DomWidget::LocalOrderMarker>> symbolMap;
         QSet<QString> newSymbols;
+        QHash<QString, OrderRecord> fetchedOrders;
+        QSet<QString> fetchedSymbols;
         const QJsonArray arr = doc.array();
         for (const auto &value : arr) {
             if (!value.isObject()) {
@@ -1163,6 +1182,11 @@ void TradeManager::fetchOpenOrders(Context &ctx)
             const QJsonObject order = value.toObject();
             const QString symbol = normalizedSymbol(order.value(QStringLiteral("symbol")).toString());
             if (symbol.isEmpty()) {
+                continue;
+            }
+            const QString orderId =
+                order.value(QStringLiteral("orderId")).toString().trimmed();
+            if (orderId.isEmpty()) {
                 continue;
             }
             const double price = order.value(QStringLiteral("price")).toString().toDouble();
@@ -1181,11 +1205,42 @@ void TradeManager::fetchOpenOrders(Context &ctx)
             marker.createdMs = order.value(QStringLiteral("time")).toVariant().toLongLong();
             symbolMap[symbol].push_back(marker);
             newSymbols.insert(symbol);
+            fetchedSymbols.insert(symbol);
+
+            OrderRecord record;
+            record.symbol = symbol;
+            record.price = price;
+            record.quantityNotional = std::abs(price * remainQty);
+            record.side = marker.side;
+            record.createdMs = marker.createdMs;
+            fetchedOrders.insert(orderId, record);
+        }
+        QList<OrderRecord> removedOrders;
+        for (auto it = ctxPtr->activeOrders.constBegin(); it != ctxPtr->activeOrders.constEnd();
+             ++it) {
+            if (!fetchedOrders.contains(it.key())) {
+                removedOrders.push_back(it.value());
+            }
+        }
+        ctxPtr->activeOrders = fetchedOrders;
+        for (const auto &record : removedOrders) {
+            emit orderCanceled(ctxPtr->accountName, record.symbol, record.side, record.price);
+        }
+        for (auto it = ctxPtr->pendingCancelSymbols.begin(); it != ctxPtr->pendingCancelSymbols.end();) {
+            if (!fetchedSymbols.contains(*it)) {
+                it = ctxPtr->pendingCancelSymbols.erase(it);
+            } else {
+                ++it;
+            }
         }
         QSet<QString> allSymbols = ctxPtr->trackedSymbols;
         allSymbols.unite(newSymbols);
         for (const QString &symbol : allSymbols) {
-            emit localOrdersUpdated(ctxPtr->accountName, symbol, symbolMap.value(symbol));
+            QVector<DomWidget::LocalOrderMarker> output;
+            if (!ctxPtr->pendingCancelSymbols.contains(symbol)) {
+                output = symbolMap.value(symbol);
+            }
+            emit localOrdersUpdated(ctxPtr->accountName, symbol, output);
         }
         ctxPtr->trackedSymbols = newSymbols;
     });
@@ -1276,6 +1331,7 @@ void TradeManager::processPrivateOrder(Context &ctx,
     }
     if (event.status == 2 || event.status == 4 || event.status == 5
         || event.remainQuantity <= 0.0) {
+        ctx.pendingCancelSymbols.remove(normalizedSym);
         emit orderCanceled(ctx.accountName, normalizedSym, side, event.price);
     }
 }

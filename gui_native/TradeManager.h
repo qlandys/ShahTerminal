@@ -94,6 +94,7 @@ private:
         QSet<QString> trackedSymbols;
         QHash<QString, TradePosition> positions;
         QHash<QString, OrderRecord> activeOrders;
+        QSet<QString> pendingCancelSymbols;
     };
 
     Context &ensureContext(ConnectionStore::Profile profile) const;
