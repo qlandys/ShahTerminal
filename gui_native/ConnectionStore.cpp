@@ -28,6 +28,8 @@ ConnectionStore::ConnectionStore(QObject *parent)
 QString ConnectionStore::profileKey(Profile profile) const
 {
     switch (profile) {
+    case Profile::UzxSpot:
+        return QStringLiteral("uzxSpot");
     case Profile::UzxSwap:
         return QStringLiteral("uzxSwap");
     case Profile::MexcFutures:
@@ -87,6 +89,8 @@ MexcCredentials ConnectionStore::loadMexcCredentials(Profile profile) const
             creds.colorHex = QStringLiteral("#f5b642");
         } else if (profile == Profile::UzxSwap) {
             creds.colorHex = QStringLiteral("#ff7f50");
+        } else if (profile == Profile::UzxSpot) {
+            creds.colorHex = QStringLiteral("#8bc34a");
         } else {
             creds.colorHex = QStringLiteral("#4c9fff");
         }

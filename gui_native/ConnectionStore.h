@@ -10,6 +10,7 @@ public:
     enum class Profile {
         MexcSpot,
         MexcFutures,
+        UzxSpot,
         UzxSwap
     };
 

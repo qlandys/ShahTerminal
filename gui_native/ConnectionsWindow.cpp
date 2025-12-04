@@ -43,6 +43,9 @@ QString profileTitle(const QString &id)
     if (id == QStringLiteral("uzxSwap")) {
         return QObject::tr("UZX Swap");
     }
+    if (id == QStringLiteral("uzxSpot")) {
+        return QObject::tr("UZX Spot");
+    }
     return QObject::tr("MEXC Spot");
 }
 
@@ -54,6 +57,9 @@ ConnectionStore::Profile profileFromId(const QString &id)
     if (id == QStringLiteral("uzxSwap")) {
         return ConnectionStore::Profile::UzxSwap;
     }
+    if (id == QStringLiteral("uzxSpot")) {
+        return ConnectionStore::Profile::UzxSpot;
+    }
     return ConnectionStore::Profile::MexcSpot;
 }
 
@@ -64,6 +70,9 @@ QString defaultColorForId(const QString &id)
     }
     if (id == QStringLiteral("uzxSwap")) {
         return QStringLiteral("#ff7f50");
+    }
+    if (id == QStringLiteral("uzxSpot")) {
+        return QStringLiteral("#8bc34a");
     }
     return QStringLiteral("#4c9fff");
 }
@@ -120,6 +129,7 @@ ConnectionsWindow::ConnectionsWindow(ConnectionStore *store, TradeManager *manag
     menu->addAction(tr("MEXC Spot"), this, [this]() { ensureCard(QStringLiteral("mexcSpot")); });
     menu->addAction(tr("MEXC Futures"), this, [this]() { ensureCard(QStringLiteral("mexcFutures")); });
     menu->addAction(tr("UZX Swap"), this, [this]() { ensureCard(QStringLiteral("uzxSwap")); });
+    menu->addAction(tr("UZX Spot"), this, [this]() { ensureCard(QStringLiteral("uzxSpot")); });
     addButton->setMenu(menu);
     header->addWidget(addButton);
     layout->addLayout(header);
@@ -141,6 +151,7 @@ ConnectionsWindow::ConnectionsWindow(ConnectionStore *store, TradeManager *manag
     ensureCard(QStringLiteral("mexcSpot"));
     ensureCard(QStringLiteral("mexcFutures"));
     ensureCard(QStringLiteral("uzxSwap"));
+    ensureCard(QStringLiteral("uzxSpot"));
 
     if (m_manager) {
         connect(m_manager,
@@ -225,7 +236,7 @@ ConnectionsWindow::CardWidgets *ConnectionsWindow::createCard(const QString &id)
     card->passphraseEdit = new QLineEdit(card->body);
     card->passphraseEdit->setPlaceholderText(tr("Passphrase (UZX)"));
     card->uidEdit = new QLineEdit(card->body);
-    card->uidEdit->setPlaceholderText(tr("U_ID (опционально)"));
+        card->uidEdit->setPlaceholderText(tr("U_ID (optional)"));
     card->proxyEdit = new QLineEdit(card->body);
     card->proxyEdit->setPlaceholderText(tr("Прокси (http://user:pass@host:port)"));
 
@@ -290,6 +301,10 @@ ConnectionsWindow::CardWidgets *ConnectionsWindow::createCard(const QString &id)
     connect(card->uidEdit, &QLineEdit::textChanged, this, registerPersist);
     connect(card->proxyEdit, &QLineEdit::textChanged, this, registerPersist);
 
+    const bool isUZX = id.startsWith(QStringLiteral("uzx"));
+    card->passphraseEdit->setVisible(isUZX);
+    card->uidEdit->setVisible(!isUZX);
+
     return card;
 }
 
@@ -312,10 +327,13 @@ void ConnectionsWindow::refreshUi()
         if (creds.colorHex.isEmpty()) {
             creds.colorHex = defaultColorForId(card->id);
         }
+        const bool isUZX = card->id.startsWith(QStringLiteral("uzx"));
+        card->passphraseEdit->setVisible(isUZX);
+        card->uidEdit->setVisible(!isUZX);
         card->apiKeyEdit->setText(creds.apiKey);
         card->secretEdit->setText(creds.saveSecret ? creds.secretKey : QString());
-        card->passphraseEdit->setText(creds.passphrase);
-        card->uidEdit->setText(creds.uid);
+        card->passphraseEdit->setText(isUZX ? creds.passphrase : QString());
+        card->uidEdit->setText(isUZX ? QString() : creds.uid);
         card->proxyEdit->setText(creds.proxy);
         card->saveSecretCheck->setChecked(creds.saveSecret);
         card->viewOnlyCheck->setChecked(creds.viewOnly);
@@ -424,8 +442,9 @@ MexcCredentials ConnectionsWindow::collectCredentials(const CardWidgets &card) c
     MexcCredentials creds;
     creds.apiKey = card.apiKeyEdit->text().trimmed();
     creds.secretKey = card.secretEdit->text().trimmed();
-    creds.passphrase = card.passphraseEdit ? card.passphraseEdit->text().trimmed() : QString();
-    creds.uid = card.uidEdit->text().trimmed();
+    const bool isUZX = card.id.startsWith(QStringLiteral("uzx"));
+    creds.passphrase = isUZX && card.passphraseEdit ? card.passphraseEdit->text().trimmed() : QString();
+    creds.uid = isUZX ? QString() : card.uidEdit->text().trimmed();
     creds.proxy = card.proxyEdit->text().trimmed();
     creds.colorHex = card.color.isValid() ? card.color.name(QColor::HexRgb) : defaultColorForId(card.id);
     creds.label = profileTitle(card.id);

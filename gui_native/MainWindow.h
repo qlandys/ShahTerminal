@@ -142,7 +142,7 @@ private:
     void updateTabUnderline(int index);
     WorkspaceTab createWorkspaceTab(const QVector<SavedColumn> &columns);
     void refreshTabCloseButtons();
-    DomColumn createDomColumn(const QString &symbol, WorkspaceTab &tab);
+    DomColumn createDomColumn(const QString &symbol, const QString &account, WorkspaceTab &tab);
     void toggleDomColumnFloating(QWidget *container, const QPoint &globalPos = QPoint());
     void floatDomColumn(WorkspaceTab &tab, DomColumn &col, int indexInSplitter, const QPoint &globalPos = QPoint());
     void dockDomColumn(WorkspaceTab &tab, DomColumn &col, int preferredIndex = -1);
@@ -190,7 +190,10 @@ private:
     void removeLocalOrderMarker(const QString &symbol,
                                 OrderSide side,
                                 double price);
+    enum class SymbolSource { Mexc, UzxSpot, UzxSwap };
     void fetchSymbolLibrary();
+    void fetchSymbolLibrary(SymbolSource source, SymbolPickerDialog *dlg = nullptr);
+    SymbolSource symbolSourceForAccount(const QString &accountName) const;
     void mergeSymbolLibrary(const QStringList &symbols, const QSet<QString> &apiOff);
     void addNotification(const QString &text, bool unread = true);
     void updateAlertsBadge();
@@ -217,11 +220,17 @@ private:
     QString m_backendPath;
     QStringList m_symbols;
     QStringList m_symbolLibrary;
+    QStringList m_uzxSpotSymbols;
+    QStringList m_uzxSwapSymbols;
+    QSet<QString> m_uzxSpotApiOff;
+    QSet<QString> m_uzxSwapApiOff;
     QSet<QString> m_apiOffSymbols;
     int m_levels;
     QVector<QVector<SavedColumn>> m_savedLayout;
     QNetworkAccessManager m_symbolFetcher;
     bool m_symbolRequestInFlight = false;
+    bool m_uzxSpotRequestInFlight = false;
+    bool m_uzxSwapRequestInFlight = false;
 
     QTabBar *m_workspaceTabs;
     QFrame *m_tabUnderline;

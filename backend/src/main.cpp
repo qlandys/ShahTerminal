@@ -31,6 +31,7 @@ namespace
     {
         std::string symbol{"BIOUSDT"};
         std::string endpoint{"wss://wbs-api.mexc.com/ws"};
+        std::string exchange{"mexc"};
         std::size_t ladderLevelsPerSide{120};
         std::chrono::milliseconds throttle{50};
         std::size_t snapshotDepth{500};
@@ -58,6 +59,10 @@ namespace
             else if (arg == "--endpoint")
             {
                 cfg.endpoint = value("--endpoint");
+            }
+            else if (arg == "--exchange")
+            {
+                cfg.exchange = value("--exchange");
             }
             else if (arg == "--ladder-levels")
             {
@@ -931,27 +936,361 @@ namespace
     }
 } // namespace
 
+bool fetchUzxSnapshot(const Config& config, dom::OrderBook& book, double& tickSizeOut, bool isSwap)
+{
+    const std::string host = "api-v2.uzx.com";
+    std::ostringstream path;
+    path << "/notification/" << (isSwap ? "swap" : "spot") << "/" << config.symbol << "/orderbook";
+    auto body = httpGet(host, path.str(), true);
+    if (!body)
+    {
+        std::cerr << "[backend] uzx snapshot failed\n";
+        return false;
+    }
+    json doc;
+    try
+    {
+        doc = json::parse(*body);
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << "[backend] uzx snapshot parse error: " << ex.what() << std::endl;
+        return false;
+    }
+
+    auto parseBookSide = [](const json& arr, std::vector<std::pair<dom::OrderBook::Tick, double>>& out, double tickSize) {
+        out.clear();
+        for (const auto& lvl : arr)
+        {
+            if (!lvl.is_array() || lvl.size() < 2) continue;
+            const std::string priceStr = lvl[0].get<std::string>();
+            const std::string qtyStr = lvl[1].get<std::string>();
+            const double price = std::atof(priceStr.c_str());
+            const double qty = std::atof(qtyStr.c_str());
+            if (price <= 0.0 || qty <= 0.0 || tickSize <= 0.0) continue;
+            const auto tick = static_cast<dom::OrderBook::Tick>(std::llround(price / tickSize));
+            out.emplace_back(tick, qty);
+        }
+    };
+
+    const auto bidsArr = doc["data"]["bids"];
+    const auto asksArr = doc["data"]["asks"];
+
+    // Derive tickSize from first price
+    tickSizeOut = tickSizeOut > 0.0 ? tickSizeOut : 0.0;
+    auto detectTick = [](const json& side) -> double {
+        for (const auto& lvl : side)
+        {
+            if (!lvl.is_array() || lvl.size() < 1) continue;
+            const std::string priceStr = lvl[0].get<std::string>();
+            auto pos = priceStr.find('.');
+            if (pos != std::string::npos)
+            {
+                const int decimals = static_cast<int>(priceStr.size() - pos - 1);
+                if (decimals > 0 && decimals < 18)
+                {
+                    return std::pow(10.0, -decimals);
+                }
+            }
+        }
+        return 0.0001;
+    };
+    if (tickSizeOut <= 0.0)
+    {
+        tickSizeOut = detectTick(bidsArr);
+        if (tickSizeOut <= 0.0)
+        {
+            tickSizeOut = detectTick(asksArr);
+        }
+    }
+
+    if (tickSizeOut <= 0.0)
+    {
+        tickSizeOut = 0.0001;
+    }
+    book.setTickSize(tickSizeOut);
+
+    std::vector<std::pair<dom::OrderBook::Tick, double>> bids;
+    std::vector<std::pair<dom::OrderBook::Tick, double>> asks;
+    parseBookSide(bidsArr, bids, tickSizeOut);
+    parseBookSide(asksArr, asks, tickSizeOut);
+    book.loadSnapshot(bids, asks);
+    return true;
+}
+
+bool runUzxWebSocket(const Config& config, dom::OrderBook& book, double tickSize, bool isSwap)
+{
+    const std::wstring host = L"stream.uzx.com";
+    const std::wstring path = L"/notification/ws";
+
+    WinHttpHandle session(
+        WinHttpOpen(L"ShahTerminal/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0));
+    if (!session.valid())
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpOpen") << std::endl;
+        return false;
+    }
+
+    WinHttpHandle connection(
+        WinHttpConnect(session.get(), host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0));
+    if (!connection.valid())
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpConnect") << std::endl;
+        return false;
+    }
+
+    WinHttpHandle request(WinHttpOpenRequest(connection.get(),
+                                             L"GET",
+                                             path.c_str(),
+                                             nullptr,
+                                             WINHTTP_NO_REFERER,
+                                             WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                             WINHTTP_FLAG_SECURE));
+    if (!request.valid())
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpOpenRequest") << std::endl;
+        return false;
+    }
+
+    if (!WinHttpSetOption(request.get(), WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0))
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpSetOption") << std::endl;
+        return false;
+    }
+
+    if (!WinHttpSendRequest(request.get(),
+                            WINHTTP_NO_ADDITIONAL_HEADERS,
+                            0,
+                            WINHTTP_NO_REQUEST_DATA,
+                            0,
+                            0,
+                            0))
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpSendRequest") << std::endl;
+        return false;
+    }
+
+    if (!WinHttpReceiveResponse(request.get(), nullptr))
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpReceiveResponse") << std::endl;
+        return false;
+    }
+
+    HINTERNET rawSocket = WinHttpWebSocketCompleteUpgrade(request.get(), 0);
+    if (!rawSocket)
+    {
+        std::cerr << "[backend] " << winhttpError("WinHttpWebSocketCompleteUpgrade") << std::endl;
+        return false;
+    }
+    WinHttpCloseHandle(request.get());
+
+    const std::string channel = isSwap ? "swap.orderBook" : "spot.orderBook";
+    const std::string biz = isSwap ? "swap" : "spot";
+    json sub = {{"event", "sub"},
+                {"params",
+                 {{"biz", biz}, {"type", channel}, {"symbol", config.symbol}, {"interval", "0"}}},
+                {"zip", false}};
+    const std::string subStr = sub.dump();
+    WinHttpWebSocketSend(rawSocket,
+                         WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
+                         (void*) subStr.data(),
+                         static_cast<DWORD>(subStr.size()));
+
+    std::vector<unsigned char> buffer(256 * 1024);
+    auto lastEmit = std::chrono::steady_clock::now();
+
+    auto detectTick = [](std::string_view priceStr) -> double {
+        auto pos = priceStr.find('.');
+        if (pos == std::string_view::npos)
+        {
+            return 1.0;
+        }
+        const int decimals = static_cast<int>(priceStr.size() - pos - 1);
+        if (decimals <= 0 || decimals > 12) return 0.0;
+        return std::pow(10.0, -decimals);
+    };
+
+    auto parseSide = [&](const json& side, double& dynamicTickSize) {
+        std::vector<std::pair<dom::OrderBook::Tick, double>> out;
+        if (!side.is_array()) return out;
+        for (const auto& lvl : side)
+        {
+            if (!lvl.is_array() || lvl.size() < 2) continue;
+            const std::string priceStr = lvl[0].get<std::string>();
+            const std::string qtyStr = lvl[1].get<std::string>();
+            const double price = std::atof(priceStr.c_str());
+            const double qty = std::atof(qtyStr.c_str());
+            if (price <= 0.0 || qty <= 0.0) continue;
+            if (dynamicTickSize <= 0.0)
+            {
+                double detected = detectTick(priceStr);
+                if (detected > 0.0)
+                {
+                    dynamicTickSize = detected;
+                    book.setTickSize(dynamicTickSize);
+                }
+            }
+            if (dynamicTickSize <= 0.0) continue;
+            const auto tick = static_cast<dom::OrderBook::Tick>(std::llround(price / dynamicTickSize));
+            out.emplace_back(tick, qty);
+        }
+        return out;
+    };
+
+    std::string fragmentBuffer;
+
+    for (;;)
+    {
+        DWORD received = 0;
+        WINHTTP_WEB_SOCKET_BUFFER_TYPE type;
+        HRESULT hr =
+            WinHttpWebSocketReceive(rawSocket, buffer.data(), static_cast<DWORD>(buffer.size()), &received, &type);
+        if (FAILED(hr))
+        {
+            std::cerr << "[backend] UZX ws receive failed: " << std::hex << hr << std::dec << std::endl;
+            break;
+        }
+        if (type == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE)
+        {
+            std::cerr << "[backend] UZX ws closed by server\n";
+            break;
+        }
+        if (received == 0) continue;
+        if (type != WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE &&
+            type != WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
+        {
+            continue;
+        }
+
+        // Accumulate only when the server actually fragments the frame. WinHTTP already
+        // preserves message boundaries, so we only stitch together continuation fragments.
+        const std::string_view chunk(reinterpret_cast<char*>(buffer.data()), received);
+        const bool isFragment = (type == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE);
+        if (isFragment)
+        {
+            fragmentBuffer.append(chunk.data(), chunk.size());
+            if (fragmentBuffer.size() > 4 * 1024 * 1024)
+            {
+                std::cerr << "[backend] UZX ws fragment buffer too large, dropping\n";
+                fragmentBuffer.clear();
+            }
+            continue;
+        }
+
+        std::string message;
+        if (!fragmentBuffer.empty())
+        {
+            fragmentBuffer.append(chunk.data(), chunk.size());
+            message.swap(fragmentBuffer);
+        }
+        else
+        {
+            message.assign(chunk);
+        }
+
+        if (message.empty())
+        {
+            continue;
+        }
+
+        auto processJson = [&](const std::string& text) {
+            auto j = json::parse(text);
+            if (j.contains("ping"))
+            {
+                json pong = {{"pong", j["ping"]}};
+                const std::string pongStr = pong.dump();
+                WinHttpWebSocketSend(rawSocket,
+                                     WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
+                                     (void*) pongStr.data(),
+                                     static_cast<DWORD>(pongStr.size()));
+                return;
+            }
+            const auto dataIt = j.find("data");
+            if (dataIt == j.end() || !dataIt->is_object())
+            {
+                return;
+            }
+            const json& data = *dataIt;
+            const auto bids = parseSide(data["bids"], tickSize);
+            const auto asks = parseSide(data["asks"], tickSize);
+            if (book.tickSize() <= 0.0 && tickSize > 0.0)
+            {
+                book.setTickSize(tickSize);
+            }
+            book.loadSnapshot(bids, asks);
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastEmit >= config.throttle)
+            {
+                lastEmit = now;
+                const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
+                emitLadder(config, book, book.bestBid(), book.bestAsk(), nowMs);
+            }
+        };
+
+        try
+        {
+            processJson(message);
+        }
+        catch (const std::exception& ex)
+        {
+            std::cerr << "[backend] UZX parse error: " << ex.what() << std::endl;
+        }
+    }
+
+    WinHttpCloseHandle(rawSocket);
+    return true;
+}
+
 int main(int argc, char** argv)
 {
     try
     {
         const auto cfg = parseArgs(argc, argv);
-        std::cerr << "[backend] starting WS depth for " << cfg.symbol << std::endl;
         dom::OrderBook book;
 
-        double tickSize = 0.0;
-        if (!fetchExchangeInfo(cfg, tickSize))
+        if (cfg.exchange == "mexc")
         {
-            std::cerr << "[backend] failed to determine tick size, exiting" << std::endl;
-            return 1;
-        }
-        book.setTickSize(tickSize);
+            std::cerr << "[backend] starting MEXC WS depth for " << cfg.symbol << std::endl;
+            double tickSize = 0.0;
+            if (!fetchExchangeInfo(cfg, tickSize))
+            {
+                std::cerr << "[backend] failed to determine tick size, exiting" << std::endl;
+                return 1;
+            }
+            book.setTickSize(tickSize);
 
-        if (!fetchSnapshot(cfg, book))
-        {
-            std::cerr << "[backend] snapshot failed, continuing with empty book" << std::endl;
+            if (!fetchSnapshot(cfg, book))
+            {
+                std::cerr << "[backend] snapshot failed, continuing with empty book" << std::endl;
+            }
+            runWebSocket(cfg, book);
         }
-        runWebSocket(cfg, book);
+        else
+        {
+            const bool isSwap = cfg.exchange == "uzxswap";
+            std::cerr << "[backend] starting UZX " << (isSwap ? "swap" : "spot") << " depth for " << cfg.symbol
+                      << std::endl;
+            double tickSize = 0.0;
+            const bool snapshotOk = fetchUzxSnapshot(cfg, book, tickSize, isSwap);
+            if (!snapshotOk)
+            {
+                std::cerr << "[backend] uzx snapshot failed, continuing" << std::endl;
+            }
+            if (tickSize > 0.0)
+            {
+                book.setTickSize(tickSize);
+            }
+            if (snapshotOk && book.tickSize() > 0.0 && book.bestBid() > 0.0 && book.bestAsk() > 0.0)
+            {
+                const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
+                emitLadder(cfg, book, book.bestBid(), book.bestAsk(), nowMs);
+            }
+            runUzxWebSocket(cfg, book, tickSize > 0.0 ? tickSize : book.tickSize(), isSwap);
+        }
         return 0;
     }
     catch (const std::exception& ex)

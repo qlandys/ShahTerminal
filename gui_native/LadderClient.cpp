@@ -15,13 +15,15 @@ using json = nlohmann::json;
 LadderClient::LadderClient(const QString &backendPath,
                            const QString &symbol,
                            int levels,
-                          DomWidget *dom,
-                          QObject *parent,
-                          PrintsWidget *prints)
+                           const QString &exchange,
+                           DomWidget *dom,
+                           QObject *parent,
+                           PrintsWidget *prints)
     : QObject(parent)
     , m_backendPath(backendPath)
     , m_symbol(symbol)
     , m_levels(levels)
+    , m_exchange(exchange)
     , m_dom(dom)
     , m_initialCenterSent(false)
     , m_prints(prints)
@@ -42,13 +44,16 @@ LadderClient::LadderClient(const QString &backendPath,
     m_watchdogTimer.setSingleShot(true);
     connect(&m_watchdogTimer, &QTimer::timeout, this, &LadderClient::handleWatchdogTimeout);
 
-    restart(m_symbol, m_levels);
+    restart(m_symbol, m_levels, m_exchange);
 }
 
-void LadderClient::restart(const QString &symbol, int levels)
+void LadderClient::restart(const QString &symbol, int levels, const QString &exchange)
 {
     m_symbol = symbol;
     m_levels = levels;
+    if (!exchange.isEmpty()) {
+        m_exchange = exchange;
+    }
     m_initialCenterSent = false;
     m_lastTickSize = 0.0;
     m_printBuffer.clear();
@@ -68,8 +73,44 @@ void LadderClient::restart(const QString &symbol, int levels)
     }
     m_lastPrices.clear();
 
+    // Map UI symbol to exchange-specific wire format.
+    QString wireSymbol = m_symbol;
+    if (m_exchange == QStringLiteral("uzxspot"))
+    {
+        if (!wireSymbol.contains(QLatin1Char('-')))
+        {
+            static const QStringList quotes = {QStringLiteral("USDT"),
+                                               QStringLiteral("USDC"),
+                                               QStringLiteral("USDR"),
+                                               QStringLiteral("USDQ"),
+                                               QStringLiteral("EURQ"),
+                                               QStringLiteral("EURR"),
+                                               QStringLiteral("BTC"),
+                                               QStringLiteral("ETH")};
+            for (const auto &q : quotes)
+            {
+                if (wireSymbol.endsWith(q, Qt::CaseInsensitive))
+                {
+                    const QString base = wireSymbol.left(wireSymbol.size() - q.size());
+                    if (!base.isEmpty())
+                    {
+                        wireSymbol = base + QLatin1Char('-') + q;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    else if (m_exchange == QStringLiteral("uzxswap"))
+    {
+        wireSymbol = wireSymbol.replace(QStringLiteral("-"), QString());
+    }
+
     QStringList args;
-    args << "--symbol" << m_symbol << "--ladder-levels" << QString::number(m_levels);
+    args << "--symbol" << wireSymbol << "--ladder-levels" << QString::number(m_levels);
+    if (!m_exchange.isEmpty()) {
+        args << "--exchange" << m_exchange;
+    }
     m_process.setArguments(args);
 
     emitStatus(QStringLiteral("Starting backend (%1, %2 levels)...").arg(m_symbol).arg(m_levels));

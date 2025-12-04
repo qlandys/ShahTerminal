@@ -473,7 +473,7 @@ TradeManager::ConnectionState TradeManager::state() const
 
 bool TradeManager::ensureCredentials() const
 {
-    if (m_profile == ConnectionStore::Profile::UzxSwap) {
+    if (m_profile == ConnectionStore::Profile::UzxSwap || m_profile == ConnectionStore::Profile::UzxSpot) {
         return !m_credentials.apiKey.isEmpty() && !m_credentials.secretKey.isEmpty()
                && !m_credentials.passphrase.isEmpty();
     }
@@ -493,7 +493,7 @@ void TradeManager::connectToExchange()
     closeWebSocket();
     m_listenKey.clear();
     m_hasSubscribed = false;
-    if (m_profile == ConnectionStore::Profile::UzxSwap) {
+    if (m_profile == ConnectionStore::Profile::UzxSwap || m_profile == ConnectionStore::Profile::UzxSpot) {
         setState(ConnectionState::Connecting, QStringLiteral("Connecting to UZX..."));
         emit logMessage(QStringLiteral("Connecting to UZX private WebSocket..."));
         initializeUzxWebSocket();
@@ -521,6 +521,35 @@ bool TradeManager::isConnected() const
     return m_state == ConnectionState::Connected;
 }
 
+static QString uzxWireSymbol(const QString &userSymbol, bool isSwap)
+{
+    QString sym = userSymbol.trimmed().toUpper();
+    if (sym.isEmpty()) return sym;
+    if (isSwap) {
+        return sym.replace(QStringLiteral("-"), QString());
+    }
+    if (!sym.contains(QLatin1Char('-'))) {
+        static const QStringList quotes = {QStringLiteral("USDT"),
+                                           QStringLiteral("USDC"),
+                                           QStringLiteral("USDR"),
+                                           QStringLiteral("USDQ"),
+                                           QStringLiteral("EURQ"),
+                                           QStringLiteral("EURR"),
+                                           QStringLiteral("BTC"),
+                                           QStringLiteral("ETH")};
+        for (const auto &q : quotes) {
+            if (sym.endsWith(q, Qt::CaseInsensitive)) {
+                const QString base = sym.left(sym.size() - q.size());
+                if (!base.isEmpty()) {
+                    sym = base + QLatin1Char('-') + q;
+                }
+                break;
+            }
+        }
+    }
+    return sym;
+}
+
 void TradeManager::placeLimitOrder(const QString &symbol,
                                    double price,
                                    double quantity,
@@ -540,10 +569,12 @@ void TradeManager::placeLimitOrder(const QString &symbol,
         return;
     }
 
-    if (m_profile == ConnectionStore::Profile::UzxSwap) {
-        // UZX swap uses signed POST JSON with Base64 HMAC-SHA256
+    if (m_profile == ConnectionStore::Profile::UzxSwap || m_profile == ConnectionStore::Profile::UzxSpot) {
+        // UZX uses signed POST JSON with Base64 HMAC-SHA256
+        const bool isSwap = (m_profile == ConnectionStore::Profile::UzxSwap);
+        const QString wireSym = uzxWireSymbol(sym, isSwap);
         QJsonObject payload;
-        payload.insert(QStringLiteral("product_name"), sym);
+        payload.insert(QStringLiteral("product_name"), wireSym);
         payload.insert(QStringLiteral("order_type"), 2); // 2 = limit (per docs example)
         payload.insert(QStringLiteral("number"), quantity);
         payload.insert(QStringLiteral("price"), QString::number(price, 'f', 8));
@@ -553,7 +584,10 @@ void TradeManager::placeLimitOrder(const QString &symbol,
                                                                           : QStringLiteral("SH"));
         payload.insert(QStringLiteral("order_buy_or_sell"), side == OrderSide::Buy ? 1 : 2);
         const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
-        QNetworkRequest req = makeUzxRequest(QStringLiteral("/v2/trade/swap/order"), body);
+        const QString path = isSwap
+                                 ? QStringLiteral("/v2/trade/swap/order")
+                                 : QStringLiteral("/v2/trade/spot/order");
+        QNetworkRequest req = makeUzxRequest(path, body);
         auto *reply = m_network.post(req, body);
         connect(reply, &QNetworkReply::finished, this, [this, reply, sym, side, price, quantity]() {
             const auto err = reply->error();
@@ -639,7 +673,7 @@ void TradeManager::cancelAllOrders(const QString &symbol)
         emit orderFailed(sym, QStringLiteral("Connect to the exchange first"));
         return;
     }
-    if (m_profile == ConnectionStore::Profile::UzxSwap) {
+    if (m_profile == ConnectionStore::Profile::UzxSwap || m_profile == ConnectionStore::Profile::UzxSpot) {
         emit orderFailed(sym, QStringLiteral("Cancel-all is not implemented for UZX yet"));
         emit logMessage(QStringLiteral("Cancel-all for UZX not implemented."));
         return;
@@ -919,17 +953,7 @@ void TradeManager::subscribeUzxPrivate()
     m_privateSocket.sendTextMessage(loginMsg);
     emit logMessage(QStringLiteral("Sent UZX login."));
 
-    QJsonObject subParams;
-    subParams.insert(QStringLiteral("biz"), QStringLiteral("private"));
-    subParams.insert(QStringLiteral("type"), QStringLiteral("order.swap"));
-    QJsonObject subPayload;
-    subPayload.insert(QStringLiteral("event"), QStringLiteral("sub"));
-    subPayload.insert(QStringLiteral("params"), subParams);
-    subPayload.insert(QStringLiteral("zip"), false);
-    const QString subMsg = QString::fromUtf8(QJsonDocument(subPayload).toJson(QJsonDocument::Compact));
-    m_privateSocket.sendTextMessage(subMsg);
-    emit logMessage(QStringLiteral("Subscribed to UZX private order updates."));
-    m_hasSubscribed = true;
+    m_hasSubscribed = false; // will subscribe after login success
 }
 
 void TradeManager::sendListenKeyKeepAlive()
@@ -970,13 +994,14 @@ void TradeManager::resetConnection(const QString &reason)
 
 void TradeManager::handleSocketConnected()
 {
-    if (m_profile == ConnectionStore::Profile::UzxSwap) {
+    if (m_profile == ConnectionStore::Profile::UzxSwap || m_profile == ConnectionStore::Profile::UzxSpot) {
         emit logMessage(QStringLiteral("UZX private WebSocket connected."));
         subscribeUzxPrivate();
         if (m_reconnectTimer.isActive()) {
             m_reconnectTimer.stop();
         }
-        setState(ConnectionState::Connected, QStringLiteral("Connected to UZX WebSocket"));
+        // state will flip to Connected after successful login event
+        setState(ConnectionState::Connecting, QStringLiteral("Authenticating..."));
         return;
     }
     emit logMessage(QStringLiteral("Private WebSocket connected."));
@@ -1038,7 +1063,7 @@ void TradeManager::handleSocketTextMessage(const QString &message)
         return;
     }
     const QJsonObject obj = doc.object();
-    if (m_profile == ConnectionStore::Profile::UzxSwap) {
+    if (m_profile == ConnectionStore::Profile::UzxSwap || m_profile == ConnectionStore::Profile::UzxSpot) {
         if (obj.contains(QStringLiteral("ping"))) {
             QJsonObject pong;
             pong.insert(QStringLiteral("pong"), obj.value(QStringLiteral("ping")));
@@ -1047,12 +1072,38 @@ void TradeManager::handleSocketTextMessage(const QString &message)
         }
         const QString event = obj.value(QStringLiteral("event")).toString();
         if (event.compare(QStringLiteral("login"), Qt::CaseInsensitive) == 0) {
-            emit logMessage(QStringLiteral("UZX login response: %1").arg(message));
-            setState(ConnectionState::Connected, QStringLiteral("UZX authenticated"));
+            const QString status = obj.value(QStringLiteral("status")).toString();
+            if (status.compare(QStringLiteral("success"), Qt::CaseInsensitive) != 0) {
+                const QString msg = obj.value(QStringLiteral("msg")).toString(
+                    obj.value(QStringLiteral("message")).toString(
+                        status.isEmpty() ? QStringLiteral("login failed") : status));
+                emit logMessage(QStringLiteral("UZX login failed: %1").arg(msg));
+                setState(ConnectionState::Error, msg);
+                m_hasSubscribed = false;
+                closeWebSocket();
+            } else {
+                emit logMessage(QStringLiteral("UZX login response: %1").arg(message));
+                // Send subscription after login success
+                QJsonObject subParams;
+                subParams.insert(QStringLiteral("biz"), QStringLiteral("private"));
+                subParams.insert(QStringLiteral("type"),
+                                 m_profile == ConnectionStore::Profile::UzxSpot ? QStringLiteral("order.spot")
+                                                                                : QStringLiteral("order.swap"));
+                QJsonObject subPayload;
+                subPayload.insert(QStringLiteral("event"), QStringLiteral("sub"));
+                subPayload.insert(QStringLiteral("params"), subParams);
+                subPayload.insert(QStringLiteral("zip"), false);
+                const QString subMsg = QString::fromUtf8(QJsonDocument(subPayload).toJson(QJsonDocument::Compact));
+                m_privateSocket.sendTextMessage(subMsg);
+                emit logMessage(QStringLiteral("Subscribed to UZX private order updates."));
+                m_hasSubscribed = true;
+                setState(ConnectionState::Connected, QStringLiteral("UZX authenticated"));
+            }
             return;
         }
         const QString type = obj.value(QStringLiteral("type")).toString();
-        if (type == QStringLiteral("order.swap")) {
+        const bool isOrder = type == QStringLiteral("order.swap") || type == QStringLiteral("order.spot");
+        if (isOrder) {
             const QString name = obj.value(QStringLiteral("name")).toString();
             const QJsonObject data = obj.value(QStringLiteral("data")).toObject();
             const double price = data.value(QStringLiteral("price")).toString().toDouble();

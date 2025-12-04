@@ -29,6 +29,7 @@ public:
 
 signals:
     void refreshRequested();
+    void accountChanged(const QString &account);
 
 private slots:
     void handleFilterChanged(const QString &text);

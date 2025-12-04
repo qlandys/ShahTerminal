@@ -1667,7 +1667,7 @@ MainWindow::WorkspaceTab MainWindow::createWorkspaceTab(const QVector<SavedColum
     }
 
     for (const auto &spec : specs) {
-        DomColumn col = createDomColumn(spec.symbol, tab);
+        DomColumn col = createDomColumn(spec.symbol, spec.account.isEmpty() ? QStringLiteral("MEXC Spot") : spec.account, tab);
         col.tickCompression = std::max(1, spec.compression);
         col.accountName = spec.account.isEmpty() ? QStringLiteral("MEXC Spot") : spec.account;
         col.accountColor = accountColorFor(col.accountName);
@@ -1807,10 +1807,13 @@ void MainWindow::refreshTabCloseButtons()
     }
 }
 
-MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, WorkspaceTab &tab)
+MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol,
+                                                  const QString &accountName,
+                                                  WorkspaceTab &tab)
 {
     DomColumn result;
     result.symbol = symbol.toUpper();
+    result.accountName = accountName.isEmpty() ? QStringLiteral("MEXC Spot") : accountName;
 
     auto *column = new QFrame(tab.workspace);
     column->setObjectName(QStringLiteral("DomColumnFrame"));
@@ -2069,7 +2072,13 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     }
 
     const QString symbolUpper = result.symbol;
-    auto *client = new LadderClient(m_backendPath, symbolUpper, m_levels, dom, column, prints);
+    const auto source = symbolSourceForAccount(result.accountName.isEmpty() ? QStringLiteral("MEXC Spot")
+                                                                            : result.accountName);
+    const QString exchangeArg = (source == SymbolSource::UzxSwap)
+                                    ? QStringLiteral("uzxswap")
+                                    : (source == SymbolSource::UzxSpot) ? QStringLiteral("uzxspot")
+                                                                        : QStringLiteral("mexc");
+    auto *client = new LadderClient(m_backendPath, symbolUpper, m_levels, exchangeArg, dom, column, prints);
     client->setCompression(result.tickCompression);
 
     connect(client,
@@ -2098,10 +2107,15 @@ MainWindow::DomColumn MainWindow::createDomColumn(const QString &symbol, Workspa
     connect(levelsSpin,
             QOverload<int>::of(&QSpinBox::valueChanged),
             this,
-            [this, client, symbolUpper](int value) {
+            [this, client, &column = tab.columnsData.back()](int value) {
                 m_levels = value;
                 if (client) {
-                    client->restart(symbolUpper, value);
+                    const auto src = symbolSourceForAccount(column.accountName);
+                    const QString exch = (src == SymbolSource::UzxSwap)
+                                             ? QStringLiteral("uzxswap")
+                                             : (src == SymbolSource::UzxSpot) ? QStringLiteral("uzxspot")
+                                                                              : QStringLiteral("mexc");
+                    client->restart(column.symbol, value, exch);
                 }
             });
     connect(compressionButton, &QToolButton::clicked, this, [this, column, compressionButton]() {
@@ -2287,7 +2301,7 @@ void MainWindow::handleNewLadderRequested()
         }
         setLastAddAction(AddAction::LadderColumn);
         WorkspaceTab &targetTab = m_tabs[idx];
-        DomColumn col = createDomColumn(symbol, targetTab);
+        DomColumn col = createDomColumn(symbol, account, targetTab);
         applySymbolToColumn(col, symbol, account);
         targetTab.columnsData.push_back(col);
         if (targetTab.columns) {
@@ -3704,7 +3718,12 @@ void MainWindow::refreshActiveLadder()
     }
     const int levels = col->levelsSpin ? col->levelsSpin->value() : m_levels;
     m_levels = levels;
-    col->client->restart(col->symbol, levels);
+        const auto src = symbolSourceForAccount(col->accountName);
+        const QString exch = (src == SymbolSource::UzxSwap)
+                                 ? QStringLiteral("uzxswap")
+                                 : (src == SymbolSource::UzxSpot) ? QStringLiteral("uzxspot")
+                                                                  : QStringLiteral("mexc");
+        col->client->restart(col->symbol, levels, exch);
 }
 
 void MainWindow::handleSettingsSearch()
@@ -4215,6 +4234,90 @@ void MainWindow::fetchSymbolLibrary()
     });
 }
 
+MainWindow::SymbolSource MainWindow::symbolSourceForAccount(const QString &accountName) const
+{
+    const QString lower = accountName.toLower();
+    if (lower.contains(QStringLiteral("uzx"))) {
+        if (lower.contains(QStringLiteral("spot"))) {
+            return SymbolSource::UzxSpot;
+        }
+        return SymbolSource::UzxSwap;
+    }
+    return SymbolSource::Mexc;
+}
+
+void MainWindow::fetchSymbolLibrary(SymbolSource source, SymbolPickerDialog *dlg)
+{
+    if (source == SymbolSource::Mexc) {
+        fetchSymbolLibrary();
+        if (dlg) {
+            dlg->setSymbols(m_symbolLibrary, m_apiOffSymbols);
+        }
+        return;
+    }
+
+    const bool isSwap = source == SymbolSource::UzxSwap;
+    bool &inFlightRef = isSwap ? m_uzxSwapRequestInFlight : m_uzxSpotRequestInFlight;
+    if (inFlightRef) {
+        return;
+    }
+    if (isSwap && !m_uzxSwapSymbols.isEmpty()) {
+        if (dlg) dlg->setSymbols(m_uzxSwapSymbols, m_uzxSwapApiOff);
+        return;
+    }
+    if (!isSwap && !m_uzxSpotSymbols.isEmpty()) {
+        if (dlg) dlg->setSymbols(m_uzxSpotSymbols, m_uzxSpotApiOff);
+        return;
+    }
+
+    const QString urlStr = isSwap ? QStringLiteral("https://api-v2.uzx.com/notification/swap/tickers")
+                                  : QStringLiteral("https://api-v2.uzx.com/notification/spot/tickers");
+    inFlightRef = true;
+    bool *flagPtr = &inFlightRef;
+    auto *reply = m_symbolFetcher.get(QNetworkRequest(QUrl(urlStr)));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, dlg, isSwap, flagPtr]() {
+        if (flagPtr) {
+            *flagPtr = false;
+        }
+        const auto err = reply->error();
+        const QByteArray raw = reply->readAll();
+        reply->deleteLater();
+        if (err != QNetworkReply::NoError) {
+            qWarning() << "[symbols] uzx fetch failed:" << err;
+            return;
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (!doc.isObject()) {
+            return;
+        }
+        const QJsonArray arr = doc.object().value(QStringLiteral("data")).toArray();
+        QStringList list;
+        list.reserve(arr.size());
+        for (const auto &v : arr) {
+            const QJsonObject obj = v.toObject();
+            QString sym = obj.value(QStringLiteral("symbol")).toString().trimmed().toUpper();
+            if (sym.isEmpty()) continue;
+            sym = sym.replace(QStringLiteral("-"), QString());
+            if (!list.contains(sym, Qt::CaseInsensitive)) {
+                list.push_back(sym);
+            }
+        }
+        std::sort(list.begin(), list.end(), [](const QString &a, const QString &b) {
+            return a.toUpper() < b.toUpper();
+        });
+        if (isSwap) {
+            m_uzxSwapSymbols = list;
+            m_uzxSwapApiOff.clear();
+        } else {
+            m_uzxSpotSymbols = list;
+            m_uzxSpotApiOff.clear();
+        }
+        if (dlg) {
+            dlg->setSymbols(list, QSet<QString>());
+        }
+    });
+}
+
 void MainWindow::mergeSymbolLibrary(const QStringList &symbols, const QSet<QString> &apiOff)
 {
     QStringList merged;
@@ -4253,7 +4356,16 @@ SymbolPickerDialog *MainWindow::createSymbolPicker(const QString &title,
     const bool apiOffLooksSuspicious =
         !m_apiOffSymbols.isEmpty() && m_apiOffSymbols.size() >= (m_symbolLibrary.size() * 8) / 10;
     const QSet<QString> apiOff = apiOffLooksSuspicious ? QSet<QString>() : m_apiOffSymbols;
-    dlg->setSymbols(m_symbolLibrary, apiOff);
+    const SymbolSource src = symbolSourceForAccount(currentAccount.isEmpty() ? currentAccount : dlg->selectedAccount());
+    if (src == SymbolSource::Mexc) {
+        dlg->setSymbols(m_symbolLibrary, apiOff);
+    } else if (src == SymbolSource::UzxSwap && !m_uzxSwapSymbols.isEmpty()) {
+        dlg->setSymbols(m_uzxSwapSymbols, m_uzxSwapApiOff);
+    } else if (src == SymbolSource::UzxSpot && !m_uzxSpotSymbols.isEmpty()) {
+        dlg->setSymbols(m_uzxSpotSymbols, m_uzxSpotApiOff);
+    } else {
+        fetchSymbolLibrary(src, dlg);
+    }
 
     QVector<QPair<QString, QColor>> accounts;
     QSet<QString> seen;
@@ -4268,11 +4380,33 @@ SymbolPickerDialog *MainWindow::createSymbolPicker(const QString &title,
     };
     ensureAccount(QStringLiteral("MEXC Spot"), QColor("#4c9fff"));
     ensureAccount(QStringLiteral("MEXC Futures"), QColor("#f5b642"));
+    ensureAccount(QStringLiteral("UZX Spot"), QColor("#8bc34a"));
     ensureAccount(QStringLiteral("UZX Swap"), QColor("#ff7f50"));
     dlg->setAccounts(accounts);
     dlg->setCurrentSymbol(currentSymbol);
     dlg->setCurrentAccount(currentAccount.isEmpty() ? QStringLiteral("MEXC Spot") : currentAccount);
-    connect(dlg, &SymbolPickerDialog::refreshRequested, this, &MainWindow::fetchSymbolLibrary);
+    connect(dlg,
+            &SymbolPickerDialog::refreshRequested,
+            this,
+            [this, dlg]() {
+                const SymbolSource src = symbolSourceForAccount(dlg->selectedAccount());
+                fetchSymbolLibrary(src, dlg);
+            });
+    connect(dlg,
+            &SymbolPickerDialog::accountChanged,
+            this,
+            [this, dlg](const QString &account) {
+                const SymbolSource src = symbolSourceForAccount(account);
+                if (src == SymbolSource::Mexc) {
+                    dlg->setSymbols(m_symbolLibrary, m_apiOffSymbols);
+                } else if (src == SymbolSource::UzxSwap && !m_uzxSwapSymbols.isEmpty()) {
+                    dlg->setSymbols(m_uzxSwapSymbols, m_uzxSwapApiOff);
+                } else if (src == SymbolSource::UzxSpot && !m_uzxSpotSymbols.isEmpty()) {
+                    dlg->setSymbols(m_uzxSpotSymbols, m_uzxSpotApiOff);
+                } else {
+                    fetchSymbolLibrary(src, dlg);
+                }
+            });
     return dlg;
 }
 
@@ -4316,7 +4450,12 @@ void MainWindow::applySymbolToColumn(DomColumn &col,
 
     const int levels = col.levelsSpin ? col.levelsSpin->value() : m_levels;
     if (col.client) {
-        col.client->restart(sym, levels);
+        const auto src = symbolSourceForAccount(col.accountName);
+        const QString exch = (src == SymbolSource::UzxSwap)
+                                 ? QStringLiteral("uzxswap")
+                                 : (src == SymbolSource::UzxSpot) ? QStringLiteral("uzxspot")
+                                                                  : QStringLiteral("mexc");
+        col.client->restart(sym, levels, exch);
     }
 }
 
@@ -4347,6 +4486,9 @@ void MainWindow::refreshAccountColors()
     insertProfile(ConnectionStore::Profile::UzxSwap,
                   QStringLiteral("UZX Swap"),
                   QStringLiteral("#ff7f50"));
+    insertProfile(ConnectionStore::Profile::UzxSpot,
+                  QStringLiteral("UZX Spot"),
+                  QStringLiteral("#8bc34a"));
     applyAccountColorsToColumns();
 }
 
@@ -4359,6 +4501,9 @@ QColor MainWindow::accountColorFor(const QString &accountName) const
         }
     }
     if (nameLower.contains(QStringLiteral("uzx"))) {
+        if (nameLower.contains(QStringLiteral("spot"))) {
+            return QColor("#8bc34a");
+        }
         return QColor("#ff7f50");
     }
     if (nameLower.contains(QStringLiteral("future"))) {

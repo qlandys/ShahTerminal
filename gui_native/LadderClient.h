@@ -19,11 +19,12 @@ public:
     explicit LadderClient(const QString &backendPath,
                           const QString &symbol,
                           int levels,
+                          const QString &exchange,
                           DomWidget *dom,
                           QObject *parent = nullptr,
                           class PrintsWidget *prints = nullptr);
 
-    void restart(const QString &symbol, int levels);
+    void restart(const QString &symbol, int levels, const QString &exchange = QString());
     void stop();
     bool isRunning() const;
     void setCompression(int factor);
@@ -47,6 +48,7 @@ private:
     QString m_backendPath;
     QString m_symbol;
     int m_levels;
+    QString m_exchange;
     QProcess m_process;
     QByteArray m_buffer;
     DomWidget *m_dom;

@@ -66,6 +66,10 @@ SymbolPickerDialog::SymbolPickerDialog(QWidget *parent)
 
     m_accountCombo = new QComboBox(this);
     layout->addWidget(m_accountCombo);
+    connect(m_accountCombo, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+        m_selectedAccount = text;
+        emit accountChanged(text);
+    });
 
     auto *refreshButton = new QToolButton(this);
     refreshButton->setAutoRaise(true);
@@ -197,6 +201,7 @@ void SymbolPickerDialog::setCurrentAccount(const QString &account)
     if (idx >= 0) {
         m_accountCombo->setCurrentIndex(idx);
     }
+    m_selectedAccount = m_accountCombo->currentText();
 }
 
 QString SymbolPickerDialog::selectedSymbol() const
